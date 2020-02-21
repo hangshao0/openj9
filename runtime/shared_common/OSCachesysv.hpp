@@ -156,6 +156,8 @@ public:
 	UDATA getPermissionsRegionGranularity(struct J9PortLibrary* portLibrary);
 
 	virtual U_32 getTotalSize();
+	
+	virtual bool fixAndWriteOSCacheHeader(J9VMThread* currentThread, IDATA fd, I_32 size);
 
 	static UDATA getHeaderSize(void);
 

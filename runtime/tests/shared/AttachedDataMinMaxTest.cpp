@@ -93,7 +93,7 @@ AttachedDataMinMaxTest::openTestCache(I_32 cacheSize, I_32 minjit, I_32 maxjit)
 	}
 	memset(cacheDetails, 0, sizeof(J9SharedClassPreinitConfig));
 
-	cacheDetails->sharedClassDebugAreaBytes = -1;
+	cacheDetails->sharedClassDebugAreaBytes = 0;
 	cacheDetails->sharedClassSoftMaxBytes = -1;
 	cacheDetails->sharedClassCacheSize = cacheSize;
 	cacheDetails->sharedClassMinJITSize = minjit;

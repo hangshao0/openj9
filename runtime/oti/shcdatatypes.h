@@ -135,7 +135,11 @@ typedef struct J9ShrOffset {
 #if defined(J9VM_OPT_MULTI_LAYER_SHARED_CLASS_CACHE)
 	U_32 cacheLayer;
 #endif /* defined(J9VM_OPT_MULTI_LAYER_SHARED_CLASS_CACHE) */
-	U_32 offset;
+	/* This struct is introduced in cache generation 41.
+	 * For cache generation 41: offset is U_32. It is always the offset from _theca.
+	 * For cache generation >=43: It is offset from CASTART if is it >=0. Otherwise, it is offset from CAEND 
+	 */
+	I_32 offset;
 } J9ShrOffset;
 
 typedef struct ROMClassWrapper {
@@ -155,11 +159,11 @@ typedef struct ScopedROMClassWrapper {
 } ScopedROMClassWrapper;
 
 typedef struct OrphanWrapper {
-	J9ShrOffset romClassOffset;
+	J9ShrOffset romClassOffset; /* ROMClass stored in different part of cache */
 } OrphanWrapper;
 
 typedef struct CompiledMethodWrapper {
-	J9ShrOffset romMethodOffset;
+	J9ShrOffset romMethodOffset;	/* ROMMethod stored in different part of cache */
 	U_32 dataLength;
 	U_32 codeLength;
 } CompiledMethodWrapper;

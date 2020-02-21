@@ -57,6 +57,7 @@ IDATA J9VMDllMain(J9JavaVM* vm, IDATA stage, void* reserved)
 		vm->sharedCacheAPI->minJIT = -1;
 		vm->sharedCacheAPI->maxJIT = -1;
 		vm->sharedCacheAPI->layer = -1;
+		vm->sharedCacheAPI->newCacheSize = (U_32)-1;
 		if (index >= 0) {
 			char optionsBuffer[SHR_SUBOPT_BUFLEN];
 			char* optionsBufferPtr = (char*)optionsBuffer;

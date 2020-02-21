@@ -95,7 +95,7 @@ private:
 	void updateLNTWithSize(UDATA size);
 	void updateLVTWithSize(UDATA size);
 	bool isOk(J9VMThread* currentThread, bool assertOnFailure, bool setCorruptionCode, bool assertForCorruptionCode);
-
+	void changePartialPageProtection(J9VMThread *currentThread, AbstractMemoryPermission * permSetter, void *addr, bool readOnly, bool phaseCheck = true);
 	friend class DebugAreaUnitTests;
 
 };

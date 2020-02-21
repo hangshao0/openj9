@@ -1535,3 +1535,11 @@ SH_OSCache::isTopLayerCache(J9JavaVM* vm, const char* ctrlDirName, char* nameWit
 done:
 	return rc;
 }
+
+const char*
+SH_OSCache::getCacheFullPathName() const
+{
+	return _cachePathName;
+}
+
+

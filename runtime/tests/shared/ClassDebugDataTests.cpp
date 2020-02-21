@@ -131,6 +131,8 @@ testClassDebugDataTests(J9JavaVM* vm)
 	PORT_ACCESS_FROM_JAVAVM(vm);
 	const UDATA onemeg = (1024 * 1024);
 	DebugAreaUnitTests tester;
+	
+	UnitTest::unitTest = UnitTest::CLASS_DEBUG_DATA_TEST;
 
 	if (ClassDebugDataProvider::recommendedSize(onemeg, 4) > 0) {
 		rc |= tester.debugmemtest1(vm);
@@ -156,6 +158,9 @@ testClassDebugDataTests(J9JavaVM* vm)
 	}
 
 	j9tty_printf(PORTLIB, "%s: %s\n", testName, TEST_PASS == rc ? "PASS" : "FAIL");
+
+	UnitTest::unitTest = UnitTest::NO_TEST;
+
 	if (rc == TEST_ERROR) {
 		return TEST_ERROR;
 	} else {

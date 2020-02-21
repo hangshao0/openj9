@@ -1688,6 +1688,14 @@ SH_OSCachesysv::getTotalSize()
 	return _actualCacheSize;
 }
 
+
+bool 
+SH_OSCachesysv::fixAndWriteOSCacheHeader(J9VMThread* currentThread, IDATA fd, I_32 size)
+{
+	Trc_SHR_Assert_ShouldNeverHappen();
+	return false;
+}
+
 UDATA
 SH_OSCachesysv::getHeaderSize(void)
 {
