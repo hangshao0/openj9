@@ -1114,7 +1114,15 @@ obj:
 	{
 		UDATA rc = (UDATA)obj;
 		if (!VM_ObjectMonitor::inlineFastObjectMonitorEnter(_currentThread, obj)) {
+		
 			rc = objectMonitorEnterNonBlocking(_currentThread, obj);
+#if JAVA_SPEC_VERSION >= 16
+			if (J9_IS_J9CLASS_VALUEBASED(J9OBJECT_CLAZZ(currentThread, obj))) {
+				if (J9_ARE_ALL_BITS_SET(runtimeFlags2, J9_EXTENDED_RUNTIME2_VALUE_BASED_WARNING)) {
+					updateVMStruct(REGISTER_ARGS);
+				}
+			}
+#endif /* JAVA_SPEC_VERSION >= 16 */	
 			if (J9_OBJECT_MONITOR_BLOCKING == rc) {
 				updateVMStruct(REGISTER_ARGS);
 				rc = objectMonitorEnterBlocking(_currentThread);

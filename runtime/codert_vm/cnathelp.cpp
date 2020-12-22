@@ -1612,6 +1612,7 @@ slow_jitMonitorEnterImpl(J9VMThread *currentThread, bool forMethod)
 				resolveFrame->specialFrameFlags = (resolveFrame->specialFrameFlags & ~J9_STACK_FLAGS_JIT_FRAME_SUB_TYPE_MASK) | J9_STACK_FLAGS_JIT_FAILED_METHOD_MONITOR_ENTER_RESOLVE;
 			}
 		}
+
 #if JAVA_SPEC_VERSION >= 16
 		if (J9_OBJECT_MONITOR_VALUE_TYPE_IMSE == monstatus) {
 			j9object_t syncObject = (j9object_t)currentThread->floatTemp2;

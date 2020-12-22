@@ -291,6 +291,56 @@ success:
 	return result;
 }
 
+#if JAVA_SPEC_VERSION >= 16
+static UDATA getMethodInfo(J9VMThread *currentThread , J9StackWalkState *state)
+{
+	J9JavaVM *vm = currentThread->javaVM;
+	J9Method *method = state->method;
+	
+	if (NULL == method) {
+		return J9_STACKWALK_KEEP_ITERATING;
+	}
+	
+	J9Class *methodClass = J9_CLASS_FROM_METHOD(method);
+	J9UTF8 *className = J9ROMCLASS_CLASSNAME(methodClass->romClass);
+	J9ROMMethod *romMethod = J9_ROM_METHOD_FROM_RAM_METHOD(method);
+	J9UTF8* methodName = J9ROMMETHOD_NAME(romMethod);
+	J9UTF8* sig = J9ROMMETHOD_SIGNATURE(romMethod);
+	char* buf = (char*)state->userData1;
+	UDATA bufLen = (UDATA)state->userData2;
+	char *cursor = buf;
+	char *end = buf + bufLen;
+	PORT_ACCESS_FROM_VMC(currentThread);
+	
+	cursor += j9str_printf(PORTLIB, cursor, end > cursor ? end - cursor : 0, "at %.*s.%.*s%.*s", J9UTF8_LENGTH(className), J9UTF8_DATA(className), J9UTF8_LENGTH(methodName), J9UTF8_DATA(methodName), J9UTF8_LENGTH(sig), J9UTF8_DATA(sig));
+
+	if (romMethod->modifiers & J9AccNative) {
+		/*increment cursor here by the return of j9str_printf if it needs to be used further*/
+		j9str_printf(PORTLIB, cursor,  end > cursor ? end - cursor : 0, " (Native Method)");
+	} else {
+		UDATA offsetPC = state->bytecodePCOffset;
+		J9UTF8 *sourceFile = getSourceFileNameForROMClass(vm, methodClass->classLoader, methodClass->romClass);
+
+		if (sourceFile) {
+			UDATA lineNumber = getLineNumberForROMClass(vm, method, offsetPC);
+
+			cursor += j9str_printf(PORTLIB, cursor,  end > cursor ? end - cursor : 0, " (%.*s", J9UTF8_LENGTH(sourceFile), J9UTF8_DATA(sourceFile));
+			if (lineNumber != (UDATA)-1) {
+				cursor += j9str_printf(PORTLIB, cursor,  end > cursor ? end - cursor : 0, ":%zu", lineNumber);
+			}
+			cursor += j9str_printf(PORTLIB, cursor,  end > cursor ? end - cursor : 0, ")");
+		} else {
+			cursor += j9str_printf(PORTLIB, cursor,  end > cursor ? end - cursor : 0, " (Bytecode PC: %zu)", offsetPC);
+		}
+		if (state->jitInfo != NULL) {
+			/*increment cursor here by the return of j9str_printf if it needs to be used further*/
+			j9str_printf(PORTLIB, cursor,  end > cursor ? end - cursor : 0, " (Compiled Code)");
+		}
+	}
+	state->userData2 = (void*)(end > cursor ? cursor - buf : 0);
+	return J9_STACKWALK_STOP_ITERATING;
+}
+#endif /* JAVA_SPEC_VERSION >= 16 */
 /*
  * Enter the monitor for the specified object without blocking.  If blocking
  * would be required, store the object in the blockingEnterObject field of
@@ -328,7 +378,16 @@ objectMonitorEnterNonBlocking(J9VMThread *currentThread, j9object_t object)
 		} else if (J9_ARE_ALL_BITS_SET(runtimeFlags2, J9_EXTENDED_RUNTIME2_VALUE_BASED_WARNING)) {
 			PORT_ACCESS_FROM_VMC(currentThread);
 			const J9UTF8* className = J9ROMCLASS_CLASSNAME(J9OBJECT_CLAZZ(currentThread, object)->romClass);
-			j9nls_printf(PORTLIB, J9NLS_WARNING, J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED, J9UTF8_LENGTH(className), J9UTF8_DATA(className));
+			J9StackWalkState walkState = {0};
+			char buf[1024] = "";
+			char* bufptr = buf;
+			walkState.walkThread = currentThread;
+			walkState.userData2 = (void*)sizeof(buf);
+			walkState.userData1 = bufptr;
+			walkState.flags = J9_STACKWALK_ITERATE_FRAMES | J9_STACKWALK_INCLUDE_NATIVES | J9_STACKWALK_VISIBLE_ONLY | J9_STACKWALK_RECORD_BYTECODE_PC_OFFSET;
+			walkState.frameWalkFunction =  getMethodInfo;
+			currentThread->javaVM->walkStackFrames(currentThread, &walkState);
+			j9nls_printf(PORTLIB, J9NLS_WARNING, J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED_WITH_METHODINFO, J9UTF8_LENGTH(className), J9UTF8_DATA(className), (UDATA)walkState.userData2, bufptr);
 		}
 	}
 #endif /* JAVA_SPEC_VERSION >= 16 */

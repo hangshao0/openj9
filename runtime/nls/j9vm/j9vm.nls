@@ -2010,3 +2010,19 @@ J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED.explanation=The class ha
 J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED.system_action=The JVM will throw an VirtualMachineError.
 J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED.user_response=Contact the provider of the classfile for a corrected version.
 # END NON-TRANSLATABLE
+
+# Message for an improper attempt to synchronize on an instance of value-based class with callsite information.
+# argument 1 is the length of the class name
+# argument 2 is the string of the class name
+# argument 3 is the length of the call site string
+# argument 4 is the call site string
+J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED_WITH_METHODINFO=bad object type %2$.*1$s: object that is synchronized is value-based %4$.*3$s
+# START NON-TRANSLATABLE
+J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED_WITH_METHODINFO.sample_input_1=3
+J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED_WITH_METHODINFO.sample_input_2=Foo
+J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED_WITH_METHODINFO.sample_input_3=36
+J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED_WITH_METHODINFO.sample_input_4=at ClassFoo.methodBar()V (ClassFoo.java:15)
+J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED_WITH_METHODINFO.explanation=The class has specified the bytecode monitorenter or monitorexit operation which cannot be performed on a value-based class but the object on stack is an instance of value-based class.
+J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED_WITH_METHODINFO.system_action=The JVM prints out a warning message on the illegal synchronization.
+J9NLS_VM_ERROR_BYTECODE_OBJECTREF_CANNOT_BE_VALUE_BASED_WITH_METHODINFO.user_response=Contact the provider of the classfile for a corrected version.
+# END NON-TRANSLATABLE
