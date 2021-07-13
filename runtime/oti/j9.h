@@ -314,8 +314,6 @@ static const struct { \
 #define J9_IS_J9CLASS_FLATTENED(clazz) J9_ARE_ALL_BITS_SET((clazz)->classFlags, J9ClassIsFlattened)
 /**
  * Disable flattening of volatile field that is > 8 bytes for now, as the current implementation of copyObjectFields() will tear this field.
- * Check J9AccVolatile for now. A new way other that "volatile" will likely to be introduced to indicate a non-tearable VT class,
- * probably a marker interface java.lang.NonTearable.
  */
 #define J9_IS_FIELD_FLATTENED(fieldClazz, romFieldShape) \
 	(J9_IS_J9CLASS_FLATTENED(fieldClazz) && \
