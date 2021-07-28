@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2019, 2019 IBM Corp. and others
+ * Copyright (c) 2019, 2021 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -23,10 +23,29 @@ package com.ibm.j9ddr.vm29.pointer.helper;
 
 import com.ibm.j9ddr.CorruptDataException;
 import com.ibm.j9ddr.vm29.pointer.generated.J9ShrOffsetPointer;
+import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.ShrCCommand;
+import com.ibm.j9ddr.vm29.pointer.U8Pointer;
 import com.ibm.j9ddr.vm29.types.UDATA;
+import com.ibm.j9ddr.vm29.types.I32;
+import com.ibm.j9ddr.vm29.types.IDATA;
+import com.ibm.j9ddr.vm29.types.Scalar;
+
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 
 public class SharedClassesMetaDataHelper {
+	private static U8Pointer[] cacheBases;
+	private static U8Pointer[] cacheEnds;
+	public static void setCacheBases(U8Pointer[] baseAddresses) {
+		if (null == cacheBases) {
+			cacheBases = baseAddresses;
+		}
+	}
+	public static void setCacheEnds(U8Pointer[] endAddresses) {
+		if (null == cacheEnds) {
+			cacheEnds = endAddresses;
+		}
+	}
 	public static int getCacheLayerFromJ9shrOffset(J9ShrOffsetPointer j9shrOffset) throws CorruptDataException {
 		int layer;
 		try {
@@ -49,5 +68,37 @@ public class SharedClassesMetaDataHelper {
 			throw new RuntimeException("Error getting the cache layer from J9ShrOffsetPointer");
 		}
 		return layer;
+	}
+
+	public static U8Pointer getAddressFromJ9shrOffset(J9ShrOffsetPointer j9shrOffset) throws CorruptDataException {
+		Scalar offsetValue;
+		try {
+			offsetValue = (Scalar) j9shrOffset.getClass().getMethod("offset").invoke(j9shrOffset);
+		} catch (NoSuchMethodException e) {
+			throw new CorruptDataException("Error getting the offset from J9ShrOffsetPointer, not method offset() found");
+		} catch (InvocationTargetException e) {
+			Throwable cause = e.getCause();
+			if (cause instanceof CorruptDataException) {
+				throw (CorruptDataException) cause;
+			} else if (cause instanceof RuntimeException) {
+				throw (RuntimeException) cause;
+			} else {
+				throw new CorruptDataException("Error getting the offset from J9ShrOffsetPointer", cause);
+			}
+		} catch (IllegalAccessException e) {
+			throw new RuntimeException("Error getting the cache layer from J9ShrOffsetPointer");
+		}
+		IDATA offset = new IDATA(offsetValue);
+		if (!ShrCCommand.isResizableCache()) {
+			if (offset.isZero()) {
+				return U8Pointer.NULL;
+			}
+		}
+		int layer = getCacheLayerFromJ9shrOffset(j9shrOffset);
+		if (offset.gte(new IDATA(0))) {
+			return cacheBases[layer].add(offset);
+		} else {
+			return cacheEnds[layer].add(offset);
+		}
 	}
 }

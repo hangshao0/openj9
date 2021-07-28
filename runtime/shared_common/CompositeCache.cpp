@@ -707,7 +707,8 @@ SH_CompositeCacheImpl::setCacheAreaBoundaries(J9VMThread* currentThread, J9Share
 
 	Trc_SHR_CC_setCacheAreaBoundaries_Event_CreateDebugAreaSize(currentThread, debugsize);
 	ClassDebugDataProvider::HeaderInit(_theca, debugsize);
-	
+	_theca->readWriteSRP = sizeof(J9SharedCacheHeader) + debugsize;
+
 	/* The segment area and cache end will need to be reset onto page boundaries */
 	
 	BlockPtr origCacheEnd = CAEND(_theca);
@@ -6814,6 +6815,7 @@ SH_CompositeCacheImpl::fixAndWriteJ9SharedCacheHeader(J9VMThread* currentThread,
 	headerCopy->totalBytes += (freeDebugSpaceToChange + freeSpaceToChange);
 	headerCopy->updateSRP += (freeDebugSpaceToChange + freeSpaceToChange);
 	headerCopy->segmentSRP += freeDebugSpaceToChange;
+	headerCopy->readWriteSRP += freeDebugSpaceToChange;
 	headerCopy->crcValid = 0; /* segment will be changed, so set crcValid 0 */
 	/* A flag can be added in extraFlags to indicate the cache has been resized for debugging purpose. */
 	headerCopy->debugRegionSize += freeDebugSpaceToChange;

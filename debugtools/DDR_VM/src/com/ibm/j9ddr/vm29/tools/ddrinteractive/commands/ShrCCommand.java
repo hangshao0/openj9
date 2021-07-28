@@ -77,10 +77,16 @@ public class ShrCCommand extends Command
 	
 	private static final String rangeDelim = "..";
 	private static long cacheTotalSize = 0;
+	private static long cacheGeneration = 0;
+	private static final long RESIZABLE_CACHE_GENERATION = 43; /* shared cache can be resized from generation 43 */
 
 	public ShrCCommand()
 	{
 		addCommand("shrc", "[command]", "shared class cache operations");
+	}
+	
+	public static boolean isResizableCache() {
+		return (cacheGeneration >= RESIZABLE_CACHE_GENERATION);
 	}
 	
 	public void run(String command, String[] args, Context context, PrintStream out) throws DDRInteractiveCommandException 
@@ -98,14 +104,15 @@ public class ShrCCommand extends Command
 			if (args.length == 0) {
 				printHelp(out);
 			} else if (sharedClassConfig.notNull()) {
+				initCacheGeneration(out, sharedClassConfig);
+				initTotalCacheSize(out, sharedClassConfig);
 				U8Pointer[] metaStartInCache = getSharedCacheMetadataStart(vm, out);
 				U8Pointer[] metaEndInCache = getSharedCacheMetadataEnd(vm, out);
 				U8Pointer[] metaStart = new U8Pointer[1];
 				U8Pointer[] metaEnd = new U8Pointer[1];
 				boolean userSpecRange = false;
 				int layer = metaStartInCache.length - 1;
-				
-				initTotalCacheSize(out, sharedClassConfig);
+
 				/* check if the first parameter specifies the range of metadata region to be used */
 				if (args.length > 1) {
 					/* Presence of '..' indicates user specified the range */
@@ -461,6 +468,31 @@ public class ShrCCommand extends Command
 		}
 		return topLayer;
 	}
+	
+	private long dbgShrcCacheGeneration(PrintStream out, J9SharedClassConfigPointer sharedClassConfig) throws CorruptDataException {
+		SH_OSCachePointer osCache = getOSCache(out, sharedClassConfig);
+		long gen = OSCacheConstants.OSCACHE_CURRENT_CACHE_GEN;
+		if (osCache.notNull()) {
+			U8Pointer cacheNamePointer = osCache._cacheNameWithVGen();
+			if (cacheNamePointer.notNull()) {
+				String cacheNameString = cacheNamePointer.getCStringAtOffset(0);
+				Pattern p = Pattern.compile(".*G(\\d\\d)L(\\d\\d)$");
+				Matcher m = p.matcher(cacheNameString);
+				if (m.matches()) {
+					String genNumberString = m.group(1);
+					gen = Integer.parseInt(genNumberString);
+				} else {
+					p = Pattern.compile(".*G(\\d\\d)$");
+					m = p.matcher(cacheNameString);
+					if (m.matches()) {
+						String genNumberString = m.group(1);
+						gen = Integer.parseInt(genNumberString);
+					}
+				}
+			}
+		}
+		return gen;
+	}
 
 	/**
 	 * Convenience class based on FileOutputStream that holds additionally the absolute path name of the file
@@ -530,7 +562,7 @@ public class ShrCCommand extends Command
 			J9SharedCacheHeaderInfo helper = new J9SharedCacheHeaderInfo(header);
 			try {
 				/* write entire cache area */
-				dbgShrcWriteCacheArea(fout, helper.getHeaderStart(), helper.getDebugAreaEnd(), false);
+				dbgShrcWriteCacheArea(fout, helper.getHeaderStart(), helper.getCacheEnd(), false);
 			} catch (IOException e) {
 				CommandUtils.dbgPrint(out, "Error writing %s: %s\n", fout.getFileName(), e.getMessage());
 			} finally {
@@ -558,24 +590,46 @@ public class ShrCCommand extends Command
 		for (J9SharedCacheHeaderPointer headerIter : header) {
 			J9SharedCacheHeaderInfo helper = new J9SharedCacheHeaderInfo(headerIter);
 			try {
-				/* write the first 3 areas in cache (header, read/write and classes) */
-				dbgShrcWriteCacheArea(fout, helper.getHeaderStart(), helper.getRomClassesEnd(), false);
-					
-				/* zero the gap between classes and metadata */
-				dbgShrcWriteCacheArea(fout, helper.getRomClassesEnd(), helper.getMetaDataEnd(), true);
-					
-				/* write the metadata area, note: metadata is written out right to left */
-				dbgShrcWriteCacheArea(fout, helper.getMetaDataEnd(), helper.getMetaDataStart(), false);
-					
-				/* write the line number (LN) area */
-				dbgShrcWriteCacheArea(fout, helper.getLineNumberAreaStart(), helper.getLineNumberAreaEnd(), false);
-					
-				/* zero the gap between LN and LV areas */
-				dbgShrcWriteCacheArea(fout, helper.getLineNumberAreaEnd(), helper.getLocalVariableAreaEnd(), true);
-					
-				/* write the local variable (LV) area, note: LV area written out right to left */
-				dbgShrcWriteCacheArea(fout, helper.getLocalVariableAreaEnd(), helper.getLocalVariableAreaStart(), false);
-					
+				if (isResizableCache()) {
+					/* write the cache header */
+					dbgShrcWriteCacheArea(fout, helper.getHeaderStart(), helper.getDebugAreaStart(), false);
+
+					/* write the line number (LN) area */
+					dbgShrcWriteCacheArea(fout, helper.getLineNumberAreaStart(), helper.getLineNumberAreaEnd(), false);
+
+					/* zero the gap between LN and LV areas */
+					dbgShrcWriteCacheArea(fout, helper.getLineNumberAreaEnd(), helper.getLocalVariableAreaEnd(), true);
+
+					/* write the local variable (LV) area, note: LV area written out right to left */
+					dbgShrcWriteCacheArea(fout, helper.getLocalVariableAreaEnd(), helper.getLocalVariableAreaStart(), false);
+
+					/* write readwrite area and rom segment area */
+					dbgShrcWriteCacheArea(fout, helper.getReadWriteStart(), helper.getRomClassesEnd(), false);
+
+					/* zero the gap between classes and metadata */
+					dbgShrcWriteCacheArea(fout, helper.getRomClassesEnd(), helper.getMetaDataEnd(), true);
+
+					/* write the metadata area, note: metadata is written out right to left */
+					dbgShrcWriteCacheArea(fout, helper.getMetaDataEnd(), helper.getMetaDataStart(), false);
+				} else {
+					/* write the first 3 areas in cache (header, read/write and classes) */
+					dbgShrcWriteCacheArea(fout, helper.getHeaderStart(), helper.getRomClassesEnd(), false);
+
+					/* zero the gap between classes and metadata */
+					dbgShrcWriteCacheArea(fout, helper.getRomClassesEnd(), helper.getMetaDataEnd(), true);
+
+					/* write the metadata area, note: metadata is written out right to left */
+					dbgShrcWriteCacheArea(fout, helper.getMetaDataEnd(), helper.getMetaDataStart(), false);
+
+					/* write the line number (LN) area */
+					dbgShrcWriteCacheArea(fout, helper.getLineNumberAreaStart(), helper.getLineNumberAreaEnd(), false);
+
+					/* zero the gap between LN and LV areas */
+					dbgShrcWriteCacheArea(fout, helper.getLineNumberAreaEnd(), helper.getLocalVariableAreaEnd(), true);
+
+					/* write the local variable (LV) area, note: LV area written out right to left */
+					dbgShrcWriteCacheArea(fout, helper.getLocalVariableAreaEnd(), helper.getLocalVariableAreaStart(), false);
+				}
 				CommandUtils.dbgPrint(out, "Cache successfully written to %s\n", fout.getFileName());
 			} catch (IOException e) {
 				CommandUtils.dbgPrint(out, "Error writing %s: %s\n", fout.getFileName(), e.getMessage());
@@ -744,13 +798,29 @@ public class ShrCCommand extends Command
 		topLayer = dbgShrcCacheTopLayer(out, sharedClassConfig);
 		ShrcConfig config = dbgShrcReadConfig(sharedClassConfig, out);
 		J9SharedCacheHeaderPointer[] cacheHeader = config.getCacheStartAddress();
-		U8Pointer[] cacheHeaderPtr = null; 
+		U8Pointer[] cacheBasesPtr = null;
+		U8Pointer[] cacheEndsPtr = null;
+		boolean isCacheLayered = (topLayer >= 0);
 
-		if (topLayer >= 0) {
-			cacheHeaderPtr = new U8Pointer[cacheHeader.length];
-			for (int i = 0; i < cacheHeader.length; i++) {
-				cacheHeaderPtr[i] = U8Pointer.cast(cacheHeader[i]);
+		if (isCacheLayered) {
+			cacheBasesPtr = new U8Pointer[cacheHeader.length];
+			cacheEndsPtr = new U8Pointer[cacheHeader.length];
+			
+			if (isResizableCache()) {
+				UDATA[] cacheRomStartAddr = config.getRomclassStartAddress();
+				UDATA[] cacheEndAddr =  config.cacheEndAddress();
+				for (int i = 0; i < cacheRomStartAddr.length; i++) {
+					cacheBasesPtr[i] = U8Pointer.cast(cacheRomStartAddr[i]);
+					cacheEndsPtr[i] = U8Pointer.cast(cacheEndAddr[i]);
+				}
+			} else {
+				for (int i = 0; i < cacheHeader.length; i++) {
+					cacheBasesPtr[i] = U8Pointer.cast(cacheHeader[i]);
+					cacheEndsPtr[i] = U8Pointer.cast(cacheHeader[i]);
+				}
 			}
+			SharedClassesMetaDataHelper.setCacheBases(cacheBasesPtr);
+			SharedClassesMetaDataHelper.setCacheEnds(cacheEndsPtr);
 		}
 
 		romclassStartAddress = config.getRomclassStartAddress();
@@ -800,7 +870,7 @@ public class ShrCCommand extends Command
 				
 				if (itemType.eq(TYPE_ORPHAN)) {
 					rcMetaLen += OrphanWrapper.SIZEOF + ShcItem.SIZEOF + ShcItemHdr.SIZEOF;
-					romClass = OrphanWrapperHelper.romClass(OrphanWrapperPointer.cast(ShcItemHelper.ITEMDATA(it)), cacheHeaderPtr);
+					romClass = OrphanWrapperHelper.romClass(OrphanWrapperPointer.cast(ShcItemHelper.ITEMDATA(it)), isCacheLayered);
 					romClassName = romClass.className();
 					if (romClassName.isNull()) {
 						CommandUtils.dbgPrint(out, "-- could not read romClassName, OW ShcItem %s romClass %s --\n", it.getHexAddress(), romClass.getHexAddress());
@@ -825,10 +895,10 @@ public class ShrCCommand extends Command
 					} else {
 						rcMetaLen += ScopedROMClassWrapper.SIZEOF;
 						srcw = ScopedROMClassWrapperPointer.cast(rcw);
-						rcPartition = J9UTF8Pointer.cast(ScopedROMClassWrapperHelper.RCWPARTITION(srcw, cacheHeaderPtr));
-						rcModContext = J9UTF8Pointer.cast(ScopedROMClassWrapperHelper.RCWMODCONTEXT(srcw, cacheHeaderPtr));
+						rcPartition = J9UTF8Pointer.cast(ScopedROMClassWrapperHelper.RCWPARTITION(srcw, isCacheLayered));
+						rcModContext = J9UTF8Pointer.cast(ScopedROMClassWrapperHelper.RCWMODCONTEXT(srcw, isCacheLayered));
 					}
-					romClass = J9ROMClassPointer.cast(ROMClassWrapperHelper.RCWROMCLASS(rcw, cacheHeaderPtr));
+					romClass = J9ROMClassPointer.cast(ROMClassWrapperHelper.RCWROMCLASS(rcw, isCacheLayered));
 					romClassName = romClass.className();
 					if (romClassName.isNull()) {
 						CommandUtils.dbgPrint(out, "-- could not read romClassName, RC ShcItem %s romClass %s --\n", it.getHexAddress(), romClass.getHexAddress());
@@ -836,7 +906,7 @@ public class ShrCCommand extends Command
 					}
 					romClassList.add(romClass);
 					if (searchAddress.isNull() || (romClass.eq(searchAddress))) {
-						cpw = ClasspathWrapperPointer.cast(ROMClassWrapperHelper.RCWCLASSPATH(ROMClassWrapperPointer.cast(ShcItemHelper.ITEMDATA(it)), cacheHeaderPtr));
+						cpw = ClasspathWrapperPointer.cast(ROMClassWrapperHelper.RCWCLASSPATH(ROMClassWrapperPointer.cast(ShcItemHelper.ITEMDATA(it)), isCacheLayered));
 						if (((statTypes & ROMCLASS_STATS) != 0)
 							|| (showAllStaleFlag && isStale)
 						) {
@@ -895,7 +965,7 @@ public class ShrCCommand extends Command
 					}
 				} else if (itemType.eq(TYPE_COMPILED_METHOD) || itemType.eq(TYPE_INVALIDATED_COMPILED_METHOD)) {
 					cmw = CompiledMethodWrapperPointer.cast(ShcItemHelper.ITEMDATA(it));
-					romMethod = J9ROMMethodPointer.cast(CompiledMethodWrapperHelper.CMWROMMETHOD(cmw, cacheHeaderPtr));
+					romMethod = J9ROMMethodPointer.cast(CompiledMethodWrapperHelper.CMWROMMETHOD(cmw, isCacheLayered));
 					dataLen = new UDATA(cmw.dataLength());
 					codeLen = new UDATA(cmw.codeLength());
 					aotDataLen += dataLen.longValue();
@@ -933,7 +1003,7 @@ public class ShrCCommand extends Command
 					++numAOT;
 				} else if (itemType.eq(TYPE_ATTACHED_DATA)) {
 					adw = AttachedDataWrapperPointer.cast(ShcItemHelper.ITEMDATA(it));
-					romMethod = J9ROMMethodPointer.cast(AttachedDataWrapperHelper.ADWCACHEOFFSET(adw, cacheHeaderPtr));
+					romMethod = J9ROMMethodPointer.cast(AttachedDataWrapperHelper.ADWCACHEOFFSET(adw, isCacheLayered));
 					dataLen = new UDATA(adw.dataLength());
 					int adType = adw.type().intValue();
 					boolean jitHint = (J9SHR_ATTACHED_DATA_TYPE_JITHINT == adType);
@@ -991,7 +1061,7 @@ public class ShrCCommand extends Command
 				} else if (itemType.eq(TYPE_BYTE_DATA)) {
 					bdw = ByteDataWrapperPointer.cast(ShcItemHelper.ITEMDATA(it));
 					byteMetaLen += ShcItem.SIZEOF + ShcItemHdr.SIZEOF + ByteDataWrapper.SIZEOF;
-					rwOffset = new UDATA(ByteDataWrapperHelper.BDWEXTBLOCK(bdw, cacheHeaderPtr));
+					rwOffset = new UDATA(ByteDataWrapperHelper.BDWEXTBLOCK(bdw, isCacheLayered));
 					len = new UDATA(ByteDataWrapperHelper.BDWLEN(bdw));
 					byteDataType = new UDATA(ByteDataWrapperHelper.BDWTYPE(bdw));
 					if (byteDataType.longValue() <= J9SHR_DATA_TYPE_MAX) {
@@ -1010,7 +1080,7 @@ public class ShrCCommand extends Command
 								continue;
 							} 
 							entryFound = true;
-							CommandUtils.dbgPrint(out, "%d: %s %s BYTEDATA !j9x %s,%s", it.jvmID().longValue(), it.getHexAddress(), getType(byteDataType), ByteDataWrapperHelper.getDataFromByteDataWrapper(bdw, cacheHeaderPtr).getHexAddress(), len.getHexValue());
+							CommandUtils.dbgPrint(out, "%d: %s %s BYTEDATA !j9x %s,%s", it.jvmID().longValue(), it.getHexAddress(), getType(byteDataType), ByteDataWrapperHelper.getDataFromByteDataWrapper(bdw, isCacheLayered).getHexAddress(), len.getHexValue());
 						}
 					} else {
 						byteDataRWLen += len.longValue();
@@ -1023,7 +1093,7 @@ public class ShrCCommand extends Command
 								continue;
 							} 
 							entryFound = true;
-							CommandUtils.dbgPrint(out, "%d: %s BYTEDATA RW !j9x %s,%s", it.jvmID().longValue(), it.getHexAddress(), ByteDataWrapperHelper.getDataFromByteDataWrapper(bdw, cacheHeaderPtr).getHexAddress(), len.getHexValue());
+							CommandUtils.dbgPrint(out, "%d: %s BYTEDATA RW !j9x %s,%s", it.jvmID().longValue(), it.getHexAddress(), ByteDataWrapperHelper.getDataFromByteDataWrapper(bdw, isCacheLayered).getHexAddress(), len.getHexValue());
 						}
 					}
 					if (((statTypes & BYTE_STATS) != 0)
@@ -1036,7 +1106,7 @@ public class ShrCCommand extends Command
 						
 						UDATA inPrivateUse = new UDATA(ByteDataWrapperHelper.BDWINPRIVATEUSE(bdw));
 						UDATA privateOwnerID = new UDATA(ByteDataWrapperHelper.BDWPRIVATEOWNERID(bdw));
-						utf8 = J9UTF8Pointer.cast(ByteDataWrapperHelper.BDWTOKEN(bdw, cacheHeaderPtr));
+						utf8 = J9UTF8Pointer.cast(ByteDataWrapperHelper.BDWTOKEN(bdw, isCacheLayered));
 						if (utf8.notNull()) {
 							CommandUtils.dbgPrint(out, "\n\tkey: !j9utf8 %s %s\n", utf8.getHexAddress(), J9UTF8Helper.stringValue(utf8));
 						}
@@ -1164,14 +1234,17 @@ public class ShrCCommand extends Command
 		J9SharedCacheHeaderPointer[] cacheStartAddress = null;
 		UDATA[] romclassStartAddress = null;
 		UDATA[] segmentPtr = null;
+		UDATA[] cacheEndAddress = null;
 		if (topLayer >= 0) {
 			cacheStartAddress = new J9SharedCacheHeaderPointer[topLayer + 1];
 			romclassStartAddress = new UDATA[topLayer + 1];
 			segmentPtr = new UDATA[topLayer + 1];
+			cacheEndAddress = new UDATA[topLayer + 1];
 		} else {
 			cacheStartAddress = new J9SharedCacheHeaderPointer[1];
 			romclassStartAddress = new UDATA[1];
 			segmentPtr = new UDATA[1];
+			cacheEndAddress = new UDATA[1];
 		}
 
 		SH_CacheMapPointer cacheMap = sharedClassConfig.sharedClassCache();
@@ -1229,21 +1302,30 @@ public class ShrCCommand extends Command
 			}
 
 			/* 
-			 * TRY TO GET romclassStartAddress
+			 * TRY TO GET romclassStartAddress and cacheEndAddress
 			 * 1st try : Get it from cacheDescriptor
 			 */
 			if (cacheDescriptor.notNull()) {
 				romclassStartAddress[layer] = UDATA.cast(cacheDescriptor.romclassStartAddress());
+				UDATA cacheSize = cacheDescriptor.cacheSizeBytes();
+				cacheEndAddress[layer] = UDATA.cast(cacheStartAddress[layer]).add(cacheSize);
 			}
 			
 			/*
 			 * If romclassStartAddress could not get on first try, 
-			 * 2nd try : Calculate it manually by adding readWriteBytes to cacheStartAddress.
+			 * 2nd try : Calculate it manually by values in J9SharedCacheHeader.
 			 */
-			if ((0 == romclassStartAddress[layer].longValue()) && (0 != cacheStartAddress[layer].readWriteBytes().longValue())) {
-				romclassStartAddress[layer] = new UDATA(cacheStartAddress[layer].addOffset(cacheStartAddress[layer].readWriteBytes()).longValue());
+			if (0 == romclassStartAddress[layer].longValue()) {
+				if (isResizableCache()) {
+					J9SharedCacheHeaderInfo helper = new J9SharedCacheHeaderInfo(cacheStartAddress[layer]);
+					romclassStartAddress[layer] = helper.getRomClassesStart();
+				} else {
+					if (0 != cacheStartAddress[layer].readWriteBytes().longValue()) {
+						/* Adding readWriteBytes to cacheStartAddress */
+						romclassStartAddress[layer] = new UDATA(cacheStartAddress[layer].addOffset(cacheStartAddress[layer].readWriteBytes()).longValue());
+					}
+				}
 			}
-			
 			/*
 			 * If romclassStartAddress could not get on the second try, 
 			 * then print info message and continue running.
@@ -1251,7 +1333,24 @@ public class ShrCCommand extends Command
 			if (0 == romclassStartAddress[layer].longValue()) {
 				CommandUtils.dbgPrint(out, "romclassStartAddress is zero for layer %d\n", layer);
 			}
-			
+
+			/*
+			 * If cacheEndAddress could not get on first try, 
+			 * 2nd try : Calculate it manually by values in J9SharedCacheHeader.
+			 */
+			if (0 == cacheEndAddress[layer].longValue()) {
+				if (0 != cacheStartAddress[layer].totalBytes().longValue()) {
+					J9SharedCacheHeaderInfo helper = new J9SharedCacheHeaderInfo(cacheStartAddress[layer]);
+					cacheEndAddress[layer] = helper.getCacheEnd();
+				}
+			}
+			/*
+			 * If cacheEndAddress could not get on the second try, 
+			 * then print info message and continue running.
+			 */
+			if (0 == cacheEndAddress[layer].longValue()) {
+				CommandUtils.dbgPrint(out, "cacheEndAddress is zero for layer %d\n", layer);
+			}
 			/*
 			 * TRY TO GET segmentPtr
 			 * 1st try : Try to get it by resolving segmentSRP from cacheStartAddress
@@ -1275,18 +1374,20 @@ public class ShrCCommand extends Command
 			layer += 1;
 		} while (layer <= topLayer);
 		
-		return new ShrcConfig(cacheStartAddress, romclassStartAddress, segmentPtr);
+		return new ShrcConfig(cacheStartAddress, romclassStartAddress, segmentPtr, cacheEndAddress);
 	}
 
 	static class ShrcConfig {
 		private final J9SharedCacheHeaderPointer[] cacheStartAddress;
 		private final UDATA[] romclassStartAddress;
 		private final UDATA[] segmentPtr;
+		private final UDATA[] cacheEndAddress;
 
-		public ShrcConfig(J9SharedCacheHeaderPointer[] cacheStartAddress, UDATA[] romclassStartAddress, UDATA[] segmentPtr) {
+		public ShrcConfig(J9SharedCacheHeaderPointer[] cacheStartAddress, UDATA[] romclassStartAddress, UDATA[] segmentPtr, UDATA[] cacheEndAddress) {
 			this.cacheStartAddress = cacheStartAddress;
 			this.romclassStartAddress = romclassStartAddress;
 			this.segmentPtr = segmentPtr;
+			this.cacheEndAddress = cacheEndAddress;
 		}
 
 		public J9SharedCacheHeaderPointer[] getCacheStartAddress() {
@@ -1299,6 +1400,10 @@ public class ShrCCommand extends Command
 
 		public UDATA[] getSegmentPtr() {
 			return segmentPtr;
+		}
+		
+		public UDATA[] cacheEndAddress() {
+			return cacheEndAddress;
 		}
 	}
 	
@@ -1522,6 +1627,14 @@ public class ShrCCommand extends Command
 			return UDATA.cast(header);
 		}
 		
+		public UDATA getCacheEnd() throws CorruptDataException {
+			if (isResizableCache()) {
+				return getMetaDataStart();
+			} else {
+				return getDebugAreaEnd();
+			}
+		}
+		
 		public U32 getTotalBytes() throws CorruptDataException {
 			return new U32(this.header.totalBytes());
 		}
@@ -1539,12 +1652,20 @@ public class ShrCCommand extends Command
 			return UDATA.cast(this.header).add(readWriteSRP);
 		}
 		
-		public UDATA getReadWriteStart() {
-			return UDATA.cast(this.header).add(J9SharedCacheHeader.SIZEOF);
+		public UDATA getReadWriteStart() throws CorruptDataException {
+			if (isResizableCache()) {
+				return getDebugAreaEnd();
+			} else {
+				return UDATA.cast(this.header).add(J9SharedCacheHeader.SIZEOF);
+			}
 		}
 		
 		public UDATA getRomClassesStart() throws CorruptDataException {
-			return UDATA.cast(header).add(getReadWriteBytes());
+			if (isResizableCache()) {
+				return getReadWriteStart().add(getReadWriteBytes());
+			} else {
+				return UDATA.cast(header).add(getReadWriteBytes());
+			}
 		}
 		
 		public UDATA getRomClassesEnd() throws CorruptDataException {
@@ -1566,7 +1687,11 @@ public class ShrCCommand extends Command
 		}
 		
 		public UDATA getMetaDataStart() throws CorruptDataException {
-			return UDATA.cast(this.header).add(getTotalBytes()).sub(getDebugAreaSize());
+			if (isResizableCache()) {
+				return UDATA.cast(this.header).add(getTotalBytes());
+			} else {
+				return UDATA.cast(this.header).add(getTotalBytes()).sub(getDebugAreaSize());
+			}
 		}
 		
 		public UDATA getMetaDataEnd() throws CorruptDataException {
@@ -1574,7 +1699,11 @@ public class ShrCCommand extends Command
 		}
 		
 		public UDATA getDebugAreaStart() throws CorruptDataException {
-			return UDATA.cast(this.header).add(getTotalBytes()).sub(getDebugAreaSize());
+			if (isResizableCache()) {
+				return UDATA.cast(this.header).add(J9SharedCacheHeader.SIZEOF);
+			} else {
+				return UDATA.cast(this.header).add(getTotalBytes()).sub(getDebugAreaSize());
+			}
 		}
 		
 		public UDATA getDebugAreaEnd() throws CorruptDataException {
@@ -1810,39 +1939,74 @@ public class ShrCCommand extends Command
 						CommandUtils.dbgPrint(out, "\n");
 					}
 				}
-				CommandUtils.dbgPrint(out, "%sread write area  : %s - %s size %d used %d\n", indent, readWriteStartAddress.getHexValue(), readWritePtr.getHexValue(), readWriteBytes.longValue(), readWritePtr.sub(readWriteStartAddress).longValue());
+				if (!isResizableCache()) {
+					CommandUtils.dbgPrint(out, "%sread write area  : %s - %s size %d used %d\n", indent, readWriteStartAddress.getHexValue(), readWritePtr.getHexValue(), readWriteBytes.longValue(), readWritePtr.sub(readWriteStartAddress).longValue());
+				}
 			}
-			CommandUtils.dbgPrint(out, "%ssegment area     : %s - %s size %d\n", indent, romclassStartAddress.getHexValue(), segmentPtr.getHexValue(), segmentPtr.sub(romclassStartAddress).longValue());
-			CommandUtils.dbgPrint(out, "%smetadata area    : %s - %s size %d\n", indent, updatePtr.getHexValue(), metadataStartAddress.getHexValue(), metadataStartAddress.sub(updatePtr).longValue());
-			CommandUtils.dbgPrint(out, "%sclass debug area : %s - %s size %d used %d (%% used %d)\n", indent, debugAreaStart.getHexValue(), debugAreaEnd.getHexValue(), debugAreaSize.longValue(), debugAreaUsed.longValue(), debugAreaPercentUsed.longValue());
+			if (!isResizableCache()) {
+				CommandUtils.dbgPrint(out, "%ssegment area     : %s - %s size %d\n", indent, romclassStartAddress.getHexValue(), segmentPtr.getHexValue(), segmentPtr.sub(romclassStartAddress).longValue());
+				CommandUtils.dbgPrint(out, "%smetadata area    : %s - %s size %d\n", indent, updatePtr.getHexValue(), metadataStartAddress.getHexValue(), metadataStartAddress.sub(updatePtr).longValue());
+				CommandUtils.dbgPrint(out, "%sclass debug area : %s - %s size %d used %d (%% used %d)\n", indent, debugAreaStart.getHexValue(), debugAreaEnd.getHexValue(), debugAreaSize.longValue(), debugAreaUsed.longValue(), debugAreaPercentUsed.longValue());
+			} else {
+				CommandUtils.dbgPrint(out, "%sclass debug area : %s - %s size %d used %d (%% used %d)\n", indent, debugAreaStart.getHexValue(), debugAreaEnd.getHexValue(), debugAreaSize.longValue(), debugAreaUsed.longValue(), debugAreaPercentUsed.longValue());
+				CommandUtils.dbgPrint(out, "%sread write area  : %s - %s size %d used %d\n", indent, readWriteStartAddress.getHexValue(), readWritePtr.getHexValue(), readWriteBytes.longValue(), readWritePtr.sub(readWriteStartAddress).longValue());
+				CommandUtils.dbgPrint(out, "%ssegment area     : %s - %s size %d\n", indent, romclassStartAddress.getHexValue(), segmentPtr.getHexValue(), segmentPtr.sub(romclassStartAddress).longValue());
+				CommandUtils.dbgPrint(out, "%smetadata area    : %s - %s size %d\n", indent, updatePtr.getHexValue(), metadataStartAddress.getHexValue(), metadataStartAddress.sub(updatePtr).longValue());
+			}
 		}
 
 		if (address.isNull()) {
 			return new Touple<Boolean, Long>(false, freeBytes);
 		}
 
-		if (address.gte(VoidPointer.cast(header)) && address.lt(header.addOffset(J9SharedCacheHeader.SIZEOF))) {
-			CommandUtils.dbgPrint(out, "\n0x%x is in the cache%s header", address.getAddress(), cacheletIndex > 0 ? "let" : "");
-		} else if (address.gte(VoidPointer.cast(readWriteStartAddress)) && address.lt(VoidPointer.cast(readWritePtr))) {
-			CommandUtils.dbgPrint(out, "\n0x%x is in the read write area", address.getAddress());
-		} else if (address.gte(VoidPointer.cast(readWritePtr)) && address.lt(VoidPointer.cast(romclassStartAddress))) {
-			CommandUtils.dbgPrint(out, "\n0x%x is in the unused part of the read write area", address.getAddress());
-		} else if (address.gte(VoidPointer.cast(romclassStartAddress)) && address.lt(VoidPointer.cast(segmentPtr))) {
-			CommandUtils.dbgPrint(out, "\n0x%x is in the rom class segment area", address.getAddress());
-		} else if (address.gte(VoidPointer.cast(segmentPtr)) && address.lt(VoidPointer.cast(updatePtr))) {
-			CommandUtils.dbgPrint(out, "\n0x%x is in unused area between class segments and metadata", address.getAddress());
-		} else if (address.gte(VoidPointer.cast(updatePtr)) && address.lt(VoidPointer.cast(metadataStartAddress))) {
-			CommandUtils.dbgPrint(out, "\n0x%x is in the metadata area", address.getAddress());
-		} else if (!debugAreaSize.eq(0) && address.gte(VoidPointer.cast(metadataStartAddress)) && address.lt(VoidPointer.cast(debugAreaEnd))) {
-			if (address.lt(VoidPointer.cast(debugLNTNextAdd))) {
-				CommandUtils.dbgPrint(out,"\n0x%x is in the line number table of the class debug area", address.getAddress());	
-			} else if (address.gt(VoidPointer.cast(debugLVTNextAdd))) {
-				CommandUtils.dbgPrint(out,"\n0x%x is in the local variable table of the class debug area", address.getAddress());
+		if (isResizableCache()) {
+			if (address.gte(VoidPointer.cast(header)) && address.lt(header.addOffset(J9SharedCacheHeader.SIZEOF))) {
+				CommandUtils.dbgPrint(out, "\n0x%x is in the cache%s header", address.getAddress(), cacheletIndex > 0 ? "let" : "");
+			} else if (!debugAreaSize.eq(0) && address.gte(VoidPointer.cast(debugAreaStart)) && address.lt(VoidPointer.cast(debugAreaEnd))) {
+				if (address.lt(VoidPointer.cast(debugLNTNextAdd))) {
+					CommandUtils.dbgPrint(out,"\n0x%x is in the line number table of the class debug area", address.getAddress());	
+				} else if (address.gt(VoidPointer.cast(debugLVTNextAdd))) {
+					CommandUtils.dbgPrint(out,"\n0x%x is in the local variable table of the class debug area", address.getAddress());
+				} else {
+					CommandUtils.dbgPrint(out,"\n0x%x is in the unused part of the class debug area", address.getAddress());
+				}				
+			} else if (address.gte(VoidPointer.cast(readWriteStartAddress)) && address.lt(VoidPointer.cast(readWritePtr))) {
+				CommandUtils.dbgPrint(out, "\n0x%x is in the read write area", address.getAddress());
+			} else if (address.gte(VoidPointer.cast(readWritePtr)) && address.lt(VoidPointer.cast(romclassStartAddress))) {
+				CommandUtils.dbgPrint(out, "\n0x%x is in the unused part of the read write area", address.getAddress());
+			} else if (address.gte(VoidPointer.cast(romclassStartAddress)) && address.lt(VoidPointer.cast(segmentPtr))) {
+				CommandUtils.dbgPrint(out, "\n0x%x is in the rom class segment area", address.getAddress());
+			} else if (address.gte(VoidPointer.cast(segmentPtr)) && address.lt(VoidPointer.cast(updatePtr))) {
+				CommandUtils.dbgPrint(out, "\n0x%x is in unused area between class segments and metadata", address.getAddress());
+			} else if (address.gte(VoidPointer.cast(updatePtr)) && address.lt(VoidPointer.cast(metadataStartAddress))) {
+				CommandUtils.dbgPrint(out, "\n0x%x is in the metadata area", address.getAddress());
 			} else {
-				CommandUtils.dbgPrint(out,"\n0x%x is in the unused part of the class debug area", address.getAddress());
-			}				
+				return new Touple<Boolean, Long>(false, freeBytes);
+			}
 		} else {
-			return new Touple<Boolean, Long>(false, freeBytes);
+			if (address.gte(VoidPointer.cast(header)) && address.lt(header.addOffset(J9SharedCacheHeader.SIZEOF))) {
+				CommandUtils.dbgPrint(out, "\n0x%x is in the cache%s header", address.getAddress(), cacheletIndex > 0 ? "let" : "");
+			} else if (address.gte(VoidPointer.cast(readWriteStartAddress)) && address.lt(VoidPointer.cast(readWritePtr))) {
+				CommandUtils.dbgPrint(out, "\n0x%x is in the read write area", address.getAddress());
+			} else if (address.gte(VoidPointer.cast(readWritePtr)) && address.lt(VoidPointer.cast(romclassStartAddress))) {
+				CommandUtils.dbgPrint(out, "\n0x%x is in the unused part of the read write area", address.getAddress());
+			} else if (address.gte(VoidPointer.cast(romclassStartAddress)) && address.lt(VoidPointer.cast(segmentPtr))) {
+				CommandUtils.dbgPrint(out, "\n0x%x is in the rom class segment area", address.getAddress());
+			} else if (address.gte(VoidPointer.cast(segmentPtr)) && address.lt(VoidPointer.cast(updatePtr))) {
+				CommandUtils.dbgPrint(out, "\n0x%x is in unused area between class segments and metadata", address.getAddress());
+			} else if (address.gte(VoidPointer.cast(updatePtr)) && address.lt(VoidPointer.cast(metadataStartAddress))) {
+				CommandUtils.dbgPrint(out, "\n0x%x is in the metadata area", address.getAddress());
+			} else if (!debugAreaSize.eq(0) && address.gte(VoidPointer.cast(metadataStartAddress)) && address.lt(VoidPointer.cast(debugAreaEnd))) {
+				if (address.lt(VoidPointer.cast(debugLNTNextAdd))) {
+					CommandUtils.dbgPrint(out,"\n0x%x is in the line number table of the class debug area", address.getAddress());	
+				} else if (address.gt(VoidPointer.cast(debugLVTNextAdd))) {
+					CommandUtils.dbgPrint(out,"\n0x%x is in the local variable table of the class debug area", address.getAddress());
+				} else {
+					CommandUtils.dbgPrint(out,"\n0x%x is in the unused part of the class debug area", address.getAddress());
+				}				
+			} else {
+				return new Touple<Boolean, Long>(false, freeBytes);
+			}
 		}
 		if (cacheletIndex > 0) {
 			CommandUtils.dbgPrint(out, " of cachelet %d\n", cacheletIndex);
@@ -1984,6 +2148,12 @@ public class ShrCCommand extends Command
 			if (osCache.notNull()) {
 				cacheTotalSize = osCache._cacheSize().longValue();
 			}
+		}
+	}
+	
+	private void initCacheGeneration(PrintStream out, J9SharedClassConfigPointer sharedClassConfig) throws CorruptDataException {
+		if (0 == cacheGeneration) {
+			cacheGeneration = dbgShrcCacheGeneration(out, sharedClassConfig);
 		}
 	}
 

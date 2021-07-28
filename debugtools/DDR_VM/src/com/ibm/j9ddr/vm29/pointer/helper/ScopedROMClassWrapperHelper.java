@@ -28,14 +28,12 @@ import com.ibm.j9ddr.vm29.pointer.U8Pointer;
 import com.ibm.j9ddr.vm29.pointer.generated.J9ShrOffsetPointer;
 import com.ibm.j9ddr.vm29.pointer.generated.ScopedROMClassWrapperPointer;
 import com.ibm.j9ddr.vm29.types.I32;
-import com.ibm.j9ddr.vm29.types.UDATA;
-import com.ibm.j9ddr.vm29.types.IDATA;
 
 public class ScopedROMClassWrapperHelper {
 	// #define RCWMODCONTEXT(srcw) (J9SHR_READSRP(srcw->modContextOffset) ? (((U_8*)(srcw)) + J9SHR_READSRP((srcw)->modContextOffset)) : 0)
-	public static U8Pointer RCWMODCONTEXT(ScopedROMClassWrapperPointer ptr, U8Pointer[] cacheHeader) throws CorruptDataException {
+	public static U8Pointer RCWMODCONTEXT(ScopedROMClassWrapperPointer ptr, boolean isCacheLayered) throws CorruptDataException {
 		PointerPointer modContextOffset = ptr.modContextOffsetEA();
-		if (null == cacheHeader) {
+		if (!isCacheLayered) {
 			I32 modContextOffsetI32 = I32Pointer.cast(modContextOffset).at(0);
 			if (!modContextOffsetI32.isZero()) {
 				return U8Pointer.cast(ptr).add(modContextOffsetI32);
@@ -43,12 +41,8 @@ public class ScopedROMClassWrapperHelper {
 		} else {
 			try {
 				J9ShrOffsetPointer j9shrOffset = J9ShrOffsetPointer.cast(modContextOffset);
-				IDATA offset = j9shrOffset.offset();
-				if (!offset.isZero()) {
-					int layer = SharedClassesMetaDataHelper.getCacheLayerFromJ9shrOffset(j9shrOffset);
-					return cacheHeader[layer].add(offset);
-				}
-			} catch (NoClassDefFoundError | NoSuchFieldException e) {
+				return SharedClassesMetaDataHelper.getAddressFromJ9shrOffset(j9shrOffset);
+			} catch (NoClassDefFoundError e) {
 				// J9ShrOffset didn't exist in the VM that created this core file
 				// even though it appears to support a multi-layer cache.
 				throw new CorruptDataException(e);
@@ -57,9 +51,9 @@ public class ScopedROMClassWrapperHelper {
 		return U8Pointer.NULL;
 	}
 
-	public static U8Pointer RCWPARTITION(ScopedROMClassWrapperPointer ptr, U8Pointer[] cacheHeader) throws CorruptDataException {
+	public static U8Pointer RCWPARTITION(ScopedROMClassWrapperPointer ptr, boolean isCacheLayered) throws CorruptDataException {
 		PointerPointer partitionOffset = ptr.partitionOffsetEA();
-		if (null == cacheHeader) {
+		if (!isCacheLayered) {
 			I32 partitionOffsetI32 = I32Pointer.cast(partitionOffset).at(0);
 			if (!partitionOffsetI32.isZero()) {
 				return U8Pointer.cast(ptr).add(partitionOffsetI32);
@@ -67,12 +61,8 @@ public class ScopedROMClassWrapperHelper {
 		} else {
 			try {
 				J9ShrOffsetPointer j9shrOffset = J9ShrOffsetPointer.cast(partitionOffset);
-				IDATA offset = j9shrOffset.offset();
-				if (!offset.isZero()) {
-					int layer = SharedClassesMetaDataHelper.getCacheLayerFromJ9shrOffset(j9shrOffset);
-					return cacheHeader[layer].add(offset);
-				}
-			} catch (NoClassDefFoundError | NoSuchFieldException e) {
+				return SharedClassesMetaDataHelper.getAddressFromJ9shrOffset(j9shrOffset);
+			} catch (NoClassDefFoundError e) {
 				// J9ShrOffset didn't exist in the VM that created this core file
 				// even though it appears to support a multi-layer cache.
 				throw new CorruptDataException(e);

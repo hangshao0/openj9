@@ -29,24 +29,18 @@ import com.ibm.j9ddr.vm29.pointer.generated.J9ShrOffsetPointer;
 import com.ibm.j9ddr.vm29.pointer.generated.AttachedDataWrapperPointer;
 import com.ibm.j9ddr.vm29.structure.AttachedDataWrapper;
 import com.ibm.j9ddr.vm29.structure.ShcItem;
-import com.ibm.j9ddr.vm29.types.UDATA;
 import com.ibm.j9ddr.vm29.types.IDATA;
 
 public class AttachedDataWrapperHelper {
-	public static U8Pointer ADWCACHEOFFSET(AttachedDataWrapperPointer ptr, U8Pointer[] cacheHeader) throws CorruptDataException {
+	public static U8Pointer ADWCACHEOFFSET(AttachedDataWrapperPointer ptr, boolean isCacheLayered) throws CorruptDataException {
 		PointerPointer cacheOffset = ptr.cacheOffsetEA();
-		if (null == cacheHeader) {
+		if (!isCacheLayered) {
 			return U8Pointer.cast(ptr).add(I32Pointer.cast(cacheOffset).at(0));
 		} else {
 			try {
 				J9ShrOffsetPointer j9shrOffset = J9ShrOffsetPointer.cast(cacheOffset);
-				IDATA offset = j9shrOffset.offset();
-				if (offset.isZero()) {
-					return U8Pointer.NULL;
-				}
-				int layer = SharedClassesMetaDataHelper.getCacheLayerFromJ9shrOffset(j9shrOffset);
-				return cacheHeader[layer].add(offset);
-			} catch (NoClassDefFoundError | NoSuchFieldException e) {
+				return SharedClassesMetaDataHelper.getAddressFromJ9shrOffset(j9shrOffset);
+			} catch (NoClassDefFoundError e) {
 				// J9ShrOffset didn't exist in the VM that created this core file
 				// even though it appears to support a multi-layer cache.
 				throw new CorruptDataException(e);

@@ -33,25 +33,36 @@ import com.ibm.j9ddr.vm29.types.I32;
 import com.ibm.j9ddr.vm29.types.U16;
 import com.ibm.j9ddr.vm29.types.U32;
 import com.ibm.j9ddr.vm29.types.U8;
-import com.ibm.j9ddr.vm29.types.UDATA;
-import com.ibm.j9ddr.vm29.types.IDATA;
+import com.ibm.j9ddr.vm29.types.Scalar;
+
+import java.lang.reflect.*;
 
 public class ByteDataWrapperHelper {
 	// #define BDWITEM(bdw) (((U_8*)(bdw)) - sizeof(ShcItem))
 
 	// #define BDWEXTBLOCK(bdw) J9SHR_READMEM((bdw)->externalBlockOffset)
-	public static I32 BDWEXTBLOCK(ByteDataWrapperPointer ptr, U8Pointer[] cacheHeader) throws CorruptDataException {
+	public static I32 BDWEXTBLOCK(ByteDataWrapperPointer ptr, boolean isCacheLayered) throws CorruptDataException {
 		PointerPointer externalBlockOffset = ptr.externalBlockOffsetEA();
-		if (null == cacheHeader) {
+		if (!isCacheLayered) {
 			return I32Pointer.cast(externalBlockOffset).at(0);
 		} else {
+			J9ShrOffsetPointer j9shroffsetPtr = J9ShrOffsetPointer.cast(externalBlockOffset);
 			try {
-				IDATA offset = J9ShrOffsetPointer.cast(externalBlockOffset).offset();
+				Scalar offset = (Scalar) j9shroffsetPtr.getClass().getMethod("offset").invoke(j9shroffsetPtr);
 				return new I32(offset);
-			} catch (NoClassDefFoundError | NoSuchFieldException e) {
-				// J9ShrOffset didn't exist in the VM that created this core file
-				// even though it appears to support a multi-layer cache.
-				throw new CorruptDataException(e);
+			} catch (NoSuchMethodException e) {
+				throw new CorruptDataException("Error getting the offset from J9ShrOffsetPointer, not method offset() found");
+			} catch (InvocationTargetException e) {
+				Throwable cause = e.getCause();
+				if (cause instanceof CorruptDataException) {
+					throw (CorruptDataException) cause;
+				} else if (cause instanceof RuntimeException) {
+					throw (RuntimeException) cause;
+				} else {
+					throw new CorruptDataException("Error getting the offset from J9ShrOffsetPointer", cause);
+				}
+			} catch (IllegalAccessException e) {
+				throw new RuntimeException("Error getting the offset from J9ShrOffsetPointer");
 			}
 		}
 	}
@@ -66,9 +77,9 @@ public class ByteDataWrapperHelper {
 		return ptr.dataType();
 	}
 
-	public static U8Pointer getDataFromByteDataWrapper(ByteDataWrapperPointer ptr, U8Pointer[] cacheHeader) throws CorruptDataException {
+	public static U8Pointer getDataFromByteDataWrapper(ByteDataWrapperPointer ptr, boolean isCacheLayered) throws CorruptDataException {
 		PointerPointer externalBlockOffset = ptr.externalBlockOffsetEA();
-		if (null == cacheHeader) {
+		if (!isCacheLayered) {
 			I32 externalBlockOffsetI32 = I32Pointer.cast(externalBlockOffset).at(0);
 			if (!externalBlockOffsetI32.isZero()) {
 				return U8Pointer.cast(ptr).add(externalBlockOffsetI32); 
@@ -76,13 +87,12 @@ public class ByteDataWrapperHelper {
 		} else {
 			try {
 				J9ShrOffsetPointer j9shrOffset = J9ShrOffsetPointer.cast(externalBlockOffset);
-				IDATA offset = j9shrOffset.offset();
-				if (!offset.isZero()) {
-					int layer = SharedClassesMetaDataHelper.getCacheLayerFromJ9shrOffset(j9shrOffset);
+				U8Pointer ret = SharedClassesMetaDataHelper.getAddressFromJ9shrOffset(j9shrOffset);
+				if (U8Pointer.NULL != ret) {
 					/* return the same as SH_CacheMap::getDataFromByteDataWrapper(const ByteDataWrapper *bdw) */
-					return cacheHeader[layer].add(offset);
+					return ret;
 				}
-			} catch (NoClassDefFoundError | NoSuchFieldException e) {
+			} catch (NoClassDefFoundError e) {
 				// J9ShrOffset didn't exist in the VM that created this core file
 			}
 		}
@@ -100,9 +110,9 @@ public class ByteDataWrapperHelper {
 		return ptr.privateOwnerID();
 	}
 
-	public static AbstractPointer BDWTOKEN(ByteDataWrapperPointer ptr, U8Pointer[] cacheHeader) throws CorruptDataException {
+	public static AbstractPointer BDWTOKEN(ByteDataWrapperPointer ptr, boolean isCacheLayered) throws CorruptDataException {
 		PointerPointer tokenOffset = ptr.tokenOffsetEA();
-		if (null == cacheHeader) {
+		if (!isCacheLayered) {
 			I32 tokenOffsetI32 = I32Pointer.cast(tokenOffset).at(0);
 			if (!tokenOffsetI32.isZero()) {
 				return U8Pointer.cast(ptr).add(tokenOffsetI32);
@@ -110,12 +120,8 @@ public class ByteDataWrapperHelper {
 		} else {
 			try {
 				J9ShrOffsetPointer j9shrOffset = J9ShrOffsetPointer.cast(tokenOffset);
-				IDATA offset = j9shrOffset.offset();
-				if (!offset.isZero()) {
-					int layer = SharedClassesMetaDataHelper.getCacheLayerFromJ9shrOffset(j9shrOffset);
-					return cacheHeader[layer].add(offset);
-				}
-			} catch (NoClassDefFoundError | NoSuchFieldException e) {
+				return SharedClassesMetaDataHelper.getAddressFromJ9shrOffset(j9shrOffset);
+			} catch (NoClassDefFoundError e) {
 				// J9ShrOffset didn't exist in the VM that created this core file
 				// even though it appears to support a multi-layer cache.
 				throw new CorruptDataException(e);

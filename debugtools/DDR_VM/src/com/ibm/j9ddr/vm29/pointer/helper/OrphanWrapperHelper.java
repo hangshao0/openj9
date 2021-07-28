@@ -28,24 +28,18 @@ import com.ibm.j9ddr.vm29.pointer.PointerPointer;
 import com.ibm.j9ddr.vm29.pointer.generated.J9ROMClassPointer;
 import com.ibm.j9ddr.vm29.pointer.generated.J9ShrOffsetPointer;
 import com.ibm.j9ddr.vm29.pointer.generated.OrphanWrapperPointer;
-import com.ibm.j9ddr.vm29.types.UDATA;
-import com.ibm.j9ddr.vm29.types.IDATA;
 
 public class OrphanWrapperHelper {
-	public static J9ROMClassPointer romClass(OrphanWrapperPointer ptr, U8Pointer[] cacheHeader) throws CorruptDataException {
+	public static J9ROMClassPointer romClass(OrphanWrapperPointer ptr, boolean isCacheLayered) throws CorruptDataException {
 		PointerPointer romClassOffset = ptr.romClassOffsetEA();
-		if (null == cacheHeader) {
+		if (!isCacheLayered) {
 			return J9ROMClassPointer.cast(U8Pointer.cast(ptr).add(I32Pointer.cast(romClassOffset.getAddress()).at(0)));
 		} else {
 			try {
 				J9ShrOffsetPointer j9shrOffset = J9ShrOffsetPointer.cast(romClassOffset);
-				IDATA offset = j9shrOffset.offset();
-				if (offset.isZero()) {
-					return J9ROMClassPointer.NULL;
-				}
-				int layer = SharedClassesMetaDataHelper.getCacheLayerFromJ9shrOffset(j9shrOffset);
-				return J9ROMClassPointer.cast(cacheHeader[layer].add(offset));
-			} catch (NoClassDefFoundError | NoSuchFieldException e) {
+				U8Pointer ret = SharedClassesMetaDataHelper.getAddressFromJ9shrOffset(j9shrOffset);
+				return J9ROMClassPointer.cast(ret);
+			} catch (NoClassDefFoundError e) {
 				// J9ShrOffset didn't exist in the VM that created this core file
 				// even though it appears to support a multi-layer cache.
 				throw new CorruptDataException(e);

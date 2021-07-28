@@ -27,49 +27,37 @@ import com.ibm.j9ddr.vm29.pointer.PointerPointer;
 import com.ibm.j9ddr.vm29.pointer.U8Pointer;
 import com.ibm.j9ddr.vm29.pointer.generated.J9ShrOffsetPointer;
 import com.ibm.j9ddr.vm29.pointer.generated.ROMClassWrapperPointer;
-import com.ibm.j9ddr.vm29.types.UDATA;
-import com.ibm.j9ddr.vm29.types.IDATA;
 
 public class ROMClassWrapperHelper {
-	public static U8Pointer RCWCLASSPATH(ROMClassWrapperPointer ptr, U8Pointer[] cacheHeader) throws CorruptDataException {
+	public static U8Pointer RCWCLASSPATH(ROMClassWrapperPointer ptr, boolean isCacheLayered) throws CorruptDataException {
 		PointerPointer theCpOffset = ptr.theCpOffsetEA();
-		if (null == cacheHeader) {
+		if (!isCacheLayered) {
 			return U8Pointer.cast(ptr).add(I32Pointer.cast(theCpOffset).at(0));
 		} else {
 			try {
 				J9ShrOffsetPointer j9shrOffset = J9ShrOffsetPointer.cast(theCpOffset);
-				IDATA offset = j9shrOffset.offset();
-				if (!offset.isZero()) {
-					int layer = SharedClassesMetaDataHelper.getCacheLayerFromJ9shrOffset(j9shrOffset);
-					return cacheHeader[layer].add(offset);
-				}
-			} catch (NoClassDefFoundError | NoSuchFieldException e) {
+				return SharedClassesMetaDataHelper.getAddressFromJ9shrOffset(j9shrOffset);
+			} catch (NoClassDefFoundError e) {
 				// J9ShrOffset didn't exist in the VM that created this core file
 				// even though it appears to support a multi-layer cache.
 				throw new CorruptDataException(e);
 			}
-			return U8Pointer.NULL;
 		}
 	}
 
-	public static U8Pointer RCWROMCLASS(ROMClassWrapperPointer ptr, U8Pointer[] cacheHeader) throws CorruptDataException {
+	public static U8Pointer RCWROMCLASS(ROMClassWrapperPointer ptr, boolean isCacheLayered) throws CorruptDataException {
 		PointerPointer romClassOffset = ptr.romClassOffsetEA();
-		if (null == cacheHeader) {
+		if (!isCacheLayered) {
 			return U8Pointer.cast(ptr).add(I32Pointer.cast(romClassOffset).at(0));
 		} else {
 			try {
 				J9ShrOffsetPointer j9shrOffset = J9ShrOffsetPointer.cast(romClassOffset);
-				IDATA offset = j9shrOffset.offset();
-				if (!offset.isZero()) {
-					int layer = SharedClassesMetaDataHelper.getCacheLayerFromJ9shrOffset(j9shrOffset);
-					return cacheHeader[layer].add(offset);
-				}
-			} catch (NoClassDefFoundError | NoSuchFieldException e) {
+				return SharedClassesMetaDataHelper.getAddressFromJ9shrOffset(j9shrOffset);
+			} catch (NoClassDefFoundError e) {
 				// J9ShrOffset didn't exist in the VM that created this core file
 				// even though it appears to support a multi-layer cache.
 				throw new CorruptDataException(e);
 			}
-			return U8Pointer.NULL;
 		}
 	}
 }
