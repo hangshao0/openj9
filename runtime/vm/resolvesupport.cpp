@@ -245,7 +245,11 @@ findFieldSignatureClass(J9VMThread *vmStruct, J9ConstantPool *ramCP, UDATA field
 	if ('[' == J9UTF8_DATA(signature)[0]) {
 		resolvedClass = internalFindClassUTF8(vmStruct, J9UTF8_DATA(signature), J9UTF8_LENGTH(signature), classLoader, J9_FINDCLASS_FLAG_THROW_ON_FAIL);
 	} else {
-		Assert_VM_true('L' == J9UTF8_DATA(signature)[0]);
+		Assert_VM_true(('L' == J9UTF8_DATA(signature)[0])
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+		|| ('Q' == J9UTF8_DATA(signature)[0])
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
+		);
 		/* skip fieldSignature's L and ; to have only CLASSNAME required for internalFindClassUTF8 */
 		resolvedClass = internalFindClassUTF8(vmStruct, &J9UTF8_DATA(signature)[1], J9UTF8_LENGTH(signature)-2, classLoader, J9_FINDCLASS_FLAG_THROW_ON_FAIL);
 	}
@@ -749,23 +753,56 @@ tryAgain:
 			}
 
 			if (J9_ARE_NO_BITS_SET(resolveFlags, J9_RESOLVE_FLAG_NO_CLASS_INIT)) {
-				if (initStatus != J9ClassInitSucceeded && initStatus != (UDATA) vmStruct) {
-					/* Initialize the class if java code is allowed */
-					if (canRunJavaCode) {
-						UDATA preCount = javaVM->hotSwapCount;
+				if (initStatus != J9ClassInitSucceeded) {
+					if (initStatus != (UDATA) vmStruct) {
+						/* Initialize the class if java code is allowed */
+						if (canRunJavaCode) {
+							UDATA preCount = javaVM->hotSwapCount;
 
-						initializeClass(vmStruct, definingClass);
-						if (threadEventsPending(vmStruct)) {
+							initializeClass(vmStruct, definingClass);
+							if (threadEventsPending(vmStruct)) {
+								staticAddress = NULL;
+								goto done;
+							}
+							if (preCount != javaVM->hotSwapCount) {
+								goto tryAgain;
+							}
+						} else {
+							/* Can't initialize the class, so fail the resolve */
 							staticAddress = NULL;
 							goto done;
 						}
-						if (preCount != javaVM->hotSwapCount) {
-							goto tryAgain;
-						}
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
 					} else {
-						/* Can't initialize the class, so fail the resolve */
-						staticAddress = NULL;
-						goto done;
+						if ('Q' == J9UTF8_DATA(signature)[0]) {
+							J9Class* fieldType = findFieldSignatureClass(vmStruct, ramCP, cpIndex);
+							if (threadEventsPending(vmStruct)) {
+								staticAddress = NULL;
+								goto done;
+							}
+							if (J9_IS_J9CLASS_VALUETYPE(fieldType)) {
+								UDATA fieldTypeInitStatus = fieldType->initializeStatus;
+								if (fieldTypeInitStatus != J9ClassInitSucceeded && fieldTypeInitStatus != (UDATA) vmStruct) {
+									/* Initialize the class if java code is allowed */
+									if (canRunJavaCode) {
+										UDATA preCount = javaVM->hotSwapCount;
+										initializeClass(vmStruct, fieldType);
+										if (threadEventsPending(vmStruct)) {
+											staticAddress = NULL;
+											goto done;
+										}
+										if (preCount != javaVM->hotSwapCount) {
+											goto tryAgain;
+										}
+									} else {
+										/* Can't initialize the class, so fail the resolve */
+										staticAddress = NULL;
+										goto done;
+									}
+								}
+							}
+						}
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 					}
 				}
 			}

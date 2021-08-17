@@ -1869,7 +1869,7 @@ j9bcv_verifyClassStructure (J9PortLibrary * portLib, J9CfrClassFile * classfile,
 		}
 		if (isInit) {
 			U_16 returnChar = getReturnTypeFromSignature(info->bytes, info->slot1, NULL);
-			if ((J9_IS_CLASSFILE_VALUETYPE(classfile) && !IS_QTYPE(returnChar))
+			if ((J9_IS_CLASSFILE_VALUETYPE(classfile) && !IS_QTYPE(returnChar)) /* 'V' is allowed in RI */
 				|| (!J9_IS_CLASSFILE_VALUETYPE(classfile) && (info->bytes[info->slot1 - 1] != 'V'))
 			) {
 				Trc_STV_j9bcv_verifyClassStructure_MethodError(J9NLS_CFR_ERR_BC_METHOD_INVALID_SIG__ID, i);
