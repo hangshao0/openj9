@@ -1945,6 +1945,13 @@ setExceptionForErroredRomClass( J9ROMClass *romClass, J9VMThread *vmThread );
  */
 #define J9_HASH_TABLE_STATE_FLAG_SKIP_HIDDEN 1
 
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+/* Flag used by hashClassTableAtWithFlags()/hashClassTableDeleteWithFlags() to indicate whether this
+ * operation is on a Q type J9Class.
+ */
+#define J9_HASH_TABLE_QUERY_FLAG_GENERATED_VT_LTYPE 1
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
+
 /**
 * Searches classLoader for any loaded classes in a specific package
 *
@@ -1974,6 +1981,19 @@ hashClassTableFree(J9ClassLoader* classLoader);
 */
 J9Class *
 hashClassTableAt(J9ClassLoader *classLoader, U_8 *className, UDATA classNameLength);
+
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+/**
+* @brief
+* @param *classLoader
+* @param *className
+* @param classNameLength
+* @param flags
+* @return J9Class *
+*/
+J9Class *
+hashClassTableAtWithFlags(J9ClassLoader *classLoader, U_8 *className, UDATA classNameLength, UDATA flags);
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 
 
 /**
@@ -2007,6 +2027,20 @@ hashClassTableAtPut(J9VMThread *vmThread, J9ClassLoader *classLoader, U_8 *class
 */
 UDATA
 hashClassTableDelete(J9ClassLoader *classLoader, U_8 *className, UDATA classNameLength);
+
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+/**
+* @brief
+* @param *classLoader
+* @param *className
+* @param classNameLength
+* @param *value
+* @param flags
+* @return UDATA
+*/
+UDATA
+hashClassTableDeleteWithFlags(J9ClassLoader *classLoader, U_8 *className, UDATA classNameLength, UDATA flags);
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 
 /**
 * @brief

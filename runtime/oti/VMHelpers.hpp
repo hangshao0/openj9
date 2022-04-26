@@ -555,7 +555,7 @@ public:
 	isSameOrSuperclass(J9Class *superClass, J9Class *subClass)
 	{
 		bool isSubclass = true;
-		if (subClass != superClass) {
+		if (!J9_ARE_J9CLASSES_SAME(superClass, subClass)) {
 			UDATA superClassDepth = getClassDepth(superClass);
 			UDATA subClassDepth = getClassDepth(subClass);
 			if ((subClassDepth <= superClassDepth) || (subClass->superclasses[superClassDepth] != superClass)) {

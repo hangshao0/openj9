@@ -66,7 +66,10 @@ public:
 		 * set.  Statics must be walked only once, so only walk them for the most current
 		 * version of the class.
 		 */
-		if ((NULL == _staticPtr) || (J9ClassReusedStatics == (J9CLASS_EXTENDED_FLAGS(clazz) & J9ClassReusedStatics))) {
+		if ((NULL == _staticPtr)
+			|| (J9ClassReusedStatics == (J9CLASS_EXTENDED_FLAGS(clazz) & J9ClassReusedStatics))
+			|| J9_IS_J9CLASS_GENERATED_VT_LTYPE(clazz)
+		) {
 			_objectStaticCount = 0;
 		}
 	};
@@ -89,7 +92,10 @@ public:
 		 * set.  Statics must be walked only once, so only walk them for the most current
 		 * version of the class.
 		 */
-		if ((NULL == _staticPtr) || (J9ClassReusedStatics == (J9CLASS_EXTENDED_FLAGS(clazz) & J9ClassReusedStatics))) {
+		if ((NULL == _staticPtr)
+			|| (J9ClassReusedStatics == (J9CLASS_EXTENDED_FLAGS(clazz) & J9ClassReusedStatics))
+			|| J9_IS_J9CLASS_GENERATED_VT_LTYPE(clazz)
+		) {
 			_objectStaticCount = 0;
 		}
 	};

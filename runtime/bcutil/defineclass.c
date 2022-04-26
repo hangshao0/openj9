@@ -117,7 +117,16 @@ internalDefineClass(
 
 	if (J9_ARE_NO_BITS_SET(options, J9_FINDCLASS_FLAG_NO_CHECK_FOR_EXISTING_CLASS)) {
 		/* For non-bootstrap classes, this check is done in jcldefine.c:defineClassCommon(). */
-		if (checkForExistingClass(vmThread, &loadData) != NULL) {
+		J9Class* existingClass = checkForExistingClass(vmThread, &loadData);
+		BOOLEAN errFound = (NULL != existingClass);
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+		if (errFound) {
+			if (J9ROMCLASS_IS_PRIMITIVE_VALUE_TYPE(existingClass->romClass)) {
+				errFound = (NULL != existingClass->Ltype) && (NULL != existingClass->Qtype);
+			}
+		}
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
+		if (errFound) {
 			Trc_BCU_internalDefineClass_Exit(vmThread, className, NULL);
 			return NULL;
 		}
