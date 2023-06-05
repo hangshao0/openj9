@@ -458,6 +458,8 @@ private:
 	void printCacheStatsAllLayersStatsHelper(J9VMThread* currentThread, UDATA showFlags, U_64 runtimeFlags, J9SharedClassJavacoreDataDescriptor *javacoreData, U_32 staleBytes);
 
 	IDATA startupLowerLayerForStats(J9VMThread* currentThread, const char* ctrlDirName, UDATA groupPerm, SH_OSCache *oscache, J9Pool** lowerLayerList);
+	
+	void updateCachePageUsed(J9VMThread *currentThread, UDATA addr, UDATA size);
 };
 
 #endif /* !defined(CACHEMAP_H_INCLUDED) */

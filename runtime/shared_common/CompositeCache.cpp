@@ -231,6 +231,7 @@ SH_CompositeCacheImpl::commonInit(J9JavaVM* vm)
 	_minimumAccessedShrCacheMetadata = 0;
 	_maximumAccessedShrCacheMetadata = 0;
 	_layer = 0;
+	_cachePageUsed = NULL;
 }
 
 /*
@@ -432,6 +433,13 @@ SH_CompositeCacheImpl::cleanup(J9VMThread* currentThread)
 		omrthread_tls_free(_commonCCInfo->writeMutexEntryCount);
 		_commonCCInfo->writeMutexEntryCount = 0;
 	}
+
+	if (_cachePageUsed) {
+		PORT_ACCESS_FROM_VMC(currentThread);
+		j9mem_free_memory(_cachePageUsed);
+		_cachePageUsed = NULL;
+	}
+
 
 	Trc_SHR_CC_cleanup_Exit(currentThread);
 }
@@ -1582,6 +1590,24 @@ releaseLockCheck:
 			}
 		}
 		protectHeaderReadWriteArea(currentThread, false);
+
+		if ((NULL == _cachePageUsed)
+			&& !_initializingNewCache 
+			&& J9_ARE_ALL_BITS_SET(vm->extendedRuntimeFlags2, J9_EXTENDED_RUNTIME2_DISCLAIMROM)
+		) {
+			PORT_ACCESS_FROM_VMC(currentThread);
+			UDATA min = ROUND_UP_TO(_osPageSize, (UDATA)getBaseAddress());
+			UDATA max = ROUND_DOWN_TO(_osPageSize, (UDATA)getMetaAllocPtr());
+			UDATA size = (max - min) / (_osPageSize * 8) + 1;
+
+			_cachePageUsed = (U_8*)j9mem_allocate_memory(size, J9MEM_CATEGORY_VM);
+			if (NULL != _cachePageUsed) {
+				memset(_cachePageUsed, 0, size);
+			} else {
+
+			}
+		}
+
 	}
 	Trc_SHR_CC_startup_Exit5(currentThread, rc);
 	return rc;
@@ -2964,6 +2990,7 @@ SH_CompositeCacheImpl::commitUpdateHelper(J9VMThread* currentThread, bool isCach
 
 		Trc_SHR_CC_CRASH3_commitUpdate_Event1(currentThread, oldNum, _theca->segmentSRP);
 
+		updateCachePageUsed(currentThread, (UDATA)startAddress, (UDATA)_storedSegmentUsedBytes);
 		/* mprotect must be done after committing the update, otherwise the memory could be
 		 * protected although the update doesn't complete because the vm exits before the commit
 		 * can occur. On at least zOS, the mprotected memory persists across vm invocations.
@@ -5749,8 +5776,88 @@ SH_CompositeCacheImpl::dontNeedMetadata(J9VMThread *currentThread)
 		&& (0 != length)
 	) {
 		_oscache->dontNeedMetadata(currentThread, (const void *)min, length);
+		printf("\n----------------- done disclaim metadata -----------------------\n");
 	}
 }
+
+
+void
+SH_CompositeCacheImpl::updateCachePageUsed(J9VMThread *currentThread, UDATA addr, UDATA size)
+{
+	if (NULL != _cachePageUsed) {
+		UDATA min = ROUND_UP_TO(_osPageSize, (UDATA)getBaseAddress());
+		UDATA max = ROUND_DOWN_TO(_osPageSize, (UDATA)getSegmentAllocPtr());
+
+		if (min <= addr && addr + size <= max) {
+			UDATA pageStart = ROUND_DOWN_TO(_osPageSize, (UDATA)addr);
+			UDATA pageEnd = ROUND_UP_TO(_osPageSize, (UDATA)addr + size);
+			for (UDATA page = pageStart; page < pageEnd; page+= _osPageSize) {
+				UDATA eachIndexBits = 8;
+				UDATA pageIndex = (page - min) /_osPageSize;
+				UDATA index =  pageIndex / eachIndexBits;
+				UDATA shift = pageIndex % eachIndexBits;
+				U_8 bitSet = (1 << shift);
+				_cachePageUsed[index] |= bitSet;
+			}
+		}
+	}
+}
+
+void
+SH_CompositeCacheImpl::dontNeedSegmentData(J9VMThread *currentThread)
+{
+	if (NULL != _cachePageUsed) {
+		PORT_ACCESS_FROM_VMC(currentThread);
+		U_8* cachePageUsed = _cachePageUsed;
+		_cachePageUsed = NULL;
+		UDATA min = ROUND_UP_TO(_osPageSize, (UDATA)getBaseAddress());
+		UDATA max = ROUND_DOWN_TO(_osPageSize, (UDATA)getSegmentAllocPtr());
+		UDATA maxPageIndex = (max - min) /_osPageSize;
+		UDATA eachIndexBits = 8;
+		UDATA maxIndex =  maxPageIndex / eachIndexBits;
+		UDATA disclaimPages = 0;
+		UDATA disclaimPageStart = 0;
+
+		_pageDisclaimed = 0;
+
+		for (UDATA index = 0; index <= maxIndex; index++) {
+			U_8 used = cachePageUsed[index];
+			U_8 unused = ~used;
+			for (UDATA shift = 0; shift < eachIndexBits; shift++) {
+				if (maxIndex == index) {
+					UDATA currentPage = (index * eachIndexBits + shift) * _osPageSize + min;
+					if (currentPage == max) {
+						break;
+					}
+				}
+				if (1 == (unused & 1)) {
+					disclaimPages++;
+					_pageDisclaimed++;
+					if (0 == disclaimPageStart) {
+						disclaimPageStart = (index * eachIndexBits + shift) * _osPageSize + min;
+					}
+				} else {
+					if (disclaimPages > 0) {
+						_oscache->dontNeedMetadata(currentThread, (const void *)disclaimPageStart, disclaimPages * _osPageSize);
+						disclaimPageStart = 0;
+						disclaimPages = 0;
+					}
+					if (0 == unused) {
+						/* Left over bits are all 0, no need to shift */
+						break;
+					}
+				}
+				unused = unused >> 1;
+			}
+		}
+		if (disclaimPages > 0) {
+			_oscache->dontNeedMetadata(currentThread, (const void *)disclaimPageStart, disclaimPages * _osPageSize);
+		}
+		printf("\n----------- pages disclaimed is %d ------------\n", (int)_pageDisclaimed);
+		j9mem_free_memory(cachePageUsed);
+	}
+}
+
 /**
  * This function changes the permission of the page containing given address by marking the page as read-only or read-write.
  * The address may belong to either segment region, metadata region or class debug data region.

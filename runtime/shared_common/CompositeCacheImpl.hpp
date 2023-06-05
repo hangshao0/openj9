@@ -362,6 +362,10 @@ public:
 
 	IDATA restoreFromSnapshot(J9JavaVM* vm, const char* cacheName, bool* cacheExist);
 	void dontNeedMetadata(J9VMThread *currentThread);
+	
+	void dontNeedSegmentData(J9VMThread *currentThread);
+	
+	void updateCachePageUsed(J9VMThread *currentThread, UDATA addr, UDATA size);
 
 	void changePartialPageProtection(J9VMThread *currentThread, void *addr, bool readOnly, bool phaseCheck = true);
 
@@ -493,7 +497,11 @@ private:
 
 	UDATA _maximumAccessedShrCacheMetadata;
 	
+	U_8* _cachePageUsed;
+	
 	I_8 _layer;
+	
+	U_32 _pageDisclaimed;
 
 	/* All instances of this class share a common debug & raw class data region
 	 */

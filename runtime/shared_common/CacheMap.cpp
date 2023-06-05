@@ -240,6 +240,9 @@ SH_CacheMap::dontNeedMetadata(J9VMThread* currentThread)
 	_metadataReleaseCounter += 1;
 	do {
 		ccToUse->dontNeedMetadata(currentThread);
+		if (1 == _metadataReleaseCounter) {
+			ccToUse->dontNeedSegmentData(currentThread);
+		}
 		ccToUse = ccToUse->getNext();
 	} while (NULL != ccToUse);
 }
@@ -2362,6 +2365,7 @@ SH_CacheMap::commitMetaDataROMClassIfRequired(J9VMThread* currentThread, Classpa
 	if (locateJ9ROMClass != NULL) {
 		/*Our class and meta data was already added so we can exit*/;
 		updateBytesRead(locateJ9ROMClass->romSize);
+		updateCachePageUsed(currentThread, (UDATA)locateJ9ROMClass, (UDATA)locateJ9ROMClass->romSize);
 		Trc_SHR_CM_commitMetaDataROMClassIfRequired_Existing_Event(currentThread, (UDATA)J9UTF8_LENGTH(romClassName), J9UTF8_DATA(romClassName), (UDATA)romclass);
 		goto done;
 	}
@@ -2743,6 +2747,7 @@ SH_CacheMap::findROMClass(J9VMThread* currentThread, const char* path, Classpath
 		updateROMSegmentList(currentThread, omrthread_monitor_owned_by_self(currentThread->javaVM->classMemorySegments->segmentMutex) != 0);
 		updateBytesRead(returnVal->romSize);		/* This is kind of inaccurate as the strings are all external to the ROMClass */
 		/* trace event is at level 1 and trace exit message is at level 2 as per CMVC 155318/157683 */
+		updateCachePageUsed(currentThread, (UDATA)returnVal, (UDATA)returnVal->romSize);
 		Trc_SHR_CM_findROMClass_Exit_Found_Event(currentThread, path, returnVal, locateResult.foundAtIndex, cp->getHelperID());
 		Trc_SHR_CM_findROMClass_Exit_Found(currentThread, path, returnVal, locateResult.foundAtIndex);
 	} else {
@@ -7122,4 +7127,17 @@ SH_CacheMap::setExtraStartupHints(J9VMThread* currentThread)
 	_ccHead->setExtraStartupHints(currentThread, val);
 	CACHEMAP_TRACE1(J9SHR_VERBOSEFLAG_ENABLE_VERBOSE_DEFAULT, J9NLS_INFO, J9NLS_SHRC_CC_EXTRA_STARTUPHINTS_SET, val);
 	_ccHead->exitWriteMutex(currentThread, fnName);
+}
+
+void
+SH_CacheMap::updateCachePageUsed(J9VMThread *currentThread, UDATA addr, UDATA size)
+{
+	SH_CompositeCacheImpl* ccToUse = _ccTail;
+	do {
+		if (ccToUse->isAddressInCache((void*)addr, false)) {
+			ccToUse->updateCachePageUsed(currentThread, addr, size);
+			break;
+		}
+		ccToUse = ccToUse->getPrevious();
+	} while (NULL != ccToUse);
 }
