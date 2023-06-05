@@ -2082,6 +2082,10 @@ VMInitStages(J9JavaVM *vm, IDATA stage, void* reserved)
 					}
 				}
 
+				if (FIND_AND_CONSUME_VMARG(EXACT_MATCH, VMOPT_XXDISCLAIMROM, NULL) >= 0) {
+					vm->extendedRuntimeFlags2 |= J9_EXTENDED_RUNTIME2_DISCLAIMROM;
+				}
+
 
 			}
 #endif
@@ -2093,8 +2097,6 @@ VMInitStages(J9JavaVM *vm, IDATA stage, void* reserved)
 				vm->runtimeFlags |= J9_RUNTIME_AGGRESSIVE;
 			}
 			processCompressionOptions(vm);
-
-
 
 			if (0 != initializeHiddenInstanceFieldsList(vm)) {
 				goto _error;

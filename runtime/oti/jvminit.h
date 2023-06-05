@@ -474,6 +474,8 @@ enum INIT_STAGE {
 #define VMOPT_XXENABLESHAREUNSAFECLASSES "-XX:+ShareUnsafeClasses"
 #define VMOPT_XXDISABLESHAREUNSAFECLASSES "-XX:-ShareUnsafeClasses"
 
+#define VMOPT_XXDISCLAIMROM "-XX:+Disclaimrom"
+
 #define VMOPT_XXFORCECLASSFILEASINTERMEDIATEDATA "-XX:ForceClassfileAsIntermediateData"
 #define VMOPT_XXRECREATECLASSFILEONLOAD "-XX:RecreateClassfileOnload"
 
