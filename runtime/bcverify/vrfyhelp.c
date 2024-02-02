@@ -49,7 +49,7 @@ static IDATA findFieldFromRamClass (J9Class ** ramClass, J9ROMFieldRef * field, 
 static IDATA findMethodFromRamClass (J9BytecodeVerificationData * verifyData, J9Class ** ramClass, J9ROMNameAndSignature * method, UDATA firstSearch);
 static VMINLINE UDATA * pushType (J9BytecodeVerificationData *verifyData, U_8 * signature, UDATA * stackTop);
 static IDATA isRAMClassCompatible(J9BytecodeVerificationData *verifyData, U_8* parentClass, UDATA parentLength, U_8* childClass, UDATA childLength, IDATA *reasonCode);
-static IDATA findFieldFromCurrentRomClass(J9ROMClass *romClass, J9ROMFieldRef *field);
+static J9ROMFieldShape* findFieldinCurrentRomClass(J9ROMClass *romClass, J9ROMFieldRef *field);
 
 J9_DECLARE_CONSTANT_UTF8(j9_vrfy_Object, "java/lang/Object");
 J9_DECLARE_CONSTANT_UTF8(j9_vrfy_String, "java/lang/String");
@@ -936,9 +936,22 @@ isFieldAccessCompatible(J9BytecodeVerificationData *verifyData, J9ROMFieldRef *f
 				 * initialization is completed in which case uninitializedThis is set to FALSE.
 				 */
 				J9BranchTargetStack *liveStack = (J9BranchTargetStack *)verifyData->liveStack;
-				return findFieldFromCurrentRomClass(romClass, fieldRef) || !liveStack->uninitializedThis;
+				return (NULL != findFieldinCurrentRomClass(romClass, fieldRef)) || !liveStack->uninitializedThis;
 			}
 		}
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+		else {
+			J9ROMFieldShape* romField = findFieldinCurrentRomClass(romClass, fieldRef);
+			/* findFieldinCurrentRomClass() searches non-static field only. This is fine as each field
+			 * of a value class has either ACC_STATIC or ACC_STRICT set. 
+			 */
+			if ((NULL != romField)
+				&& J9_ARE_ALL_BITS_SET(romField->modifiers, J9AccStrict)
+			) {
+				return (IDATA)FALSE;
+			}
+		}
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 	}
 	return isClassCompatibleByName(verifyData, receiver, J9UTF8_DATA(utf8string), J9UTF8_LENGTH(utf8string), reasonCode);
 }
@@ -1231,15 +1244,15 @@ storeVerifyErrorData (J9BytecodeVerificationData * verifyData, I_16 errorDetailC
 }
 
 /**
- * @brief Determine whether the specified field belongs to the current ROM class.
+ * @brief Find the specified non-static field in the current ROM class.
  *
  * @param romClass a pointer to J9ROMClass
  * @param field a pointer to J9ROMFieldRef
- * @return TRUE if it exists in the current ROM class
- *         FALSE when the field doesn't exist
+ * @return Pointer to J9ROMFieldShape if it exists in the current ROM class
+ *         NULL if the field doesn't exist
  */
-static IDATA
-findFieldFromCurrentRomClass(J9ROMClass *romClass, J9ROMFieldRef *field)
+static J9ROMFieldShape*
+findFieldinCurrentRomClass(J9ROMClass *romClass, J9ROMFieldRef *field)
 {
 	J9UTF8 *searchName = J9ROMNAMEANDSIGNATURE_NAME(J9ROMFIELDREF_NAMEANDSIGNATURE(field));
 	J9UTF8 *searchSignature = J9ROMNAMEANDSIGNATURE_SIGNATURE(J9ROMFIELDREF_NAMEANDSIGNATURE(field));
@@ -1253,11 +1266,9 @@ findFieldFromCurrentRomClass(J9ROMClass *romClass, J9ROMFieldRef *field)
 			&& compareTwoUTF8s(searchName, J9ROMFIELDSHAPE_NAME(currentField))
 			&& compareTwoUTF8s(searchSignature, J9ROMFIELDSHAPE_SIGNATURE(currentField))
 		) {
-			isFieldFound = (IDATA)TRUE;
-			break;
+			return currentField;
 		}
 		currentField = romFieldsNextDo(&state);
 	}
-
-	return isFieldFound;
+	return NULL;
 }
