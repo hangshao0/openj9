@@ -34,34 +34,42 @@ public class DDRBackfillLayoutTest {
 	}
 
 	private static void createAndCheckValueType() throws Throwable {
-		FlatSingleBackfill! flatSingleBackfillInstance =
+		@NullRestricted
+		FlatSingleBackfill flatSingleBackfillInstance =
 			new FlatSingleBackfill(new ValueLong(defaultLong),
 			new ValueObject(defaultObject), new ValueInt(defaultInt));
-		FlatObjectBackfill! objectBackfillInstance =
+		@NullRestricted
+		FlatObjectBackfill objectBackfillInstance =
 			new FlatObjectBackfill(new ValueLong(defaultLong),
 			new ValueObject(defaultObject));
-		FlatUnAlignedSingleBackfill! flatUnAlignedSingleBackfillInstance =
+		@NullRestricted
+		FlatUnAlignedSingleBackfill flatUnAlignedSingleBackfillInstance =
 			new FlatUnAlignedSingleBackfill(new ValueLong(defaultLong),
 			new FlatUnAlignedSingle(new ValueInt(defaultInt),
 			new ValueInt(defaultIntNew)), new ValueObject(defaultObject));
-		FlatUnAlignedSingleBackfill2! flatUnAlignedSingleBackfill2Instance =
+		@NullRestricted
+		FlatUnAlignedSingleBackfill2 flatUnAlignedSingleBackfill2Instance =
 			new FlatUnAlignedSingleBackfill2(new ValueLong(defaultLong),
 			new FlatUnAlignedSingle(new ValueInt(defaultInt),
 			new ValueInt(defaultIntNew)),
 			new FlatUnAlignedSingle(new ValueInt(defaultInt),
 			new ValueInt(defaultIntNew)));
-		FlatUnAlignedObjectBackfill! flatUnAlignedObjectBackfillInstance =
+		@NullRestricted
+		FlatUnAlignedObjectBackfill flatUnAlignedObjectBackfillInstance =
 			new FlatUnAlignedObjectBackfill(new FlatUnAlignedObject(
 				new ValueObject(defaultObject), new ValueObject(defaultObjectNew)),
 				new FlatUnAlignedObject(new ValueObject(defaultObject),
 				new ValueObject(defaultObjectNew)), new ValueLong(defaultLong));
-		FlatUnAlignedObjectBackfill2! flatUnAlignedObjectBackfill2Instance =
+		@NullRestricted
+		FlatUnAlignedObjectBackfill2 flatUnAlignedObjectBackfill2Instance =
 			new FlatUnAlignedObjectBackfill2(new ValueObject(defaultObject),
 			new FlatUnAlignedObject(new ValueObject(defaultObject),
 			new ValueObject(defaultObjectNew)), new ValueLong(defaultLong));
-		SingleBackfill! singleBackfillInstance =
+		@NullRestricted
+		SingleBackfill singleBackfillInstance =
 			new SingleBackfill(defaultLong, defaultObject, defaultInt);
-		ObjectBackfill! objectBackfillInstance2 =
+		@NullRestricted
+		ObjectBackfill objectBackfillInstance2 =
 			new ObjectBackfill(defaultLong, defaultObject);
 
 		ValueTypeDoubleLong doubleLongInstance = new ValueTypeDoubleLong(
@@ -72,8 +80,8 @@ public class DDRBackfillLayoutTest {
 			new ValueTypeDoubleQuadLong(quadLongInstance, doubleLongInstance,
 			new ValueLong(defaultLongNew4), defaultLongNew5);
 
-		FlatUnAlignedSingleBackfill2![] flatUnAlignedSingleBackfill2Array =
-			new FlatUnAlignedSingleBackfill2![3];
+		FlatUnAlignedSingleBackfill2[] flatUnAlignedSingleBackfill2Array =
+			(FlatUnAlignedSingleBackfill2[])ValueClass.newNullRestrictedArray(FlatUnAlignedSingleBackfill2.class, 3);
 		flatUnAlignedSingleBackfill2Array[1] = flatUnAlignedSingleBackfill2Instance;
 
 		ValueTypeQuadLong[] quadLongArray = new ValueTypeQuadLong[3];
