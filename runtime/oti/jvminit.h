@@ -507,10 +507,10 @@ enum INIT_STAGE {
 #define VMOPT_XXENABLESHAREUNSAFECLASSES "-XX:+ShareUnsafeClasses"
 #define VMOPT_XXDISABLESHAREUNSAFECLASSES "-XX:-ShareUnsafeClasses"
 
-
 #define VMOPT_XXENABLESHAREORPHANS "-XX:+ShareOrphans"
 #define VMOPT_XXDISABLESHAREORPHANS "-XX:-ShareOrphans"
 
+/* This may not needed */
 #define VMOPT_XXDISCLAIMROM "-XX:+Disclaimrom"
 
 #define VMOPT_XXFORCECLASSFILEASINTERMEDIATEDATA "-XX:ForceClassfileAsIntermediateData"
