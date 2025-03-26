@@ -1527,6 +1527,8 @@ obj:
 	VMINLINE VM_BytecodeAction
 	yieldPinnedContinuation(REGISTER_ARGS_LIST, U_32 newThreadState, UDATA returnState)
 	{
+		J9VMContinuation *continuation = _currentThread->currentContinuation;
+
 		/* InternalNative frame only build for non-jit calls. */
 		if (J9VM_CONTINUATION_RETURN_FROM_JIT_MONITOR_ENTER != returnState) {
 			buildInternalNativeStackFrame(REGISTER_ARGS);
@@ -1539,6 +1541,12 @@ obj:
 			omrthread_monitor_enter(_vm->blockedVirtualThreadsMutex);
 			_currentThread->currentContinuation->nextWaitingContinuation = _vm->blockedContinuations;
 			_vm->blockedContinuations = _currentThread->currentContinuation;
+			continuation->nextWaitingContinuation = _vm->blockedContinuations;
+			_vm->blockedContinuations = continuation;
+			if (NULL == continuation->objectWaitMonitor->monitor->owner) {
+				/* notify unblocker if the blocking monitor is unlocked. */
+				omrthread_monitor_notify(_vm->blockedVirtualThreadsMutex);
+			}
 			omrthread_monitor_exit(_vm->blockedVirtualThreadsMutex);
 		}
 
@@ -1578,9 +1586,6 @@ obj:
 #endif /* defined(J9VM_OPT_CRIU_SUPPORT) */
 			case J9_OBJECT_MONITOR_YIELD_VIRTUAL: {
 				rc = yieldPinnedContinuation(REGISTER_ARGS, JAVA_LANG_VIRTUALTHREAD_BLOCKING, returnState);
-				omrthread_monitor_enter(_vm->blockedVirtualThreadsMutex);
-				omrthread_monitor_notify(_vm->blockedVirtualThreadsMutex);
-				omrthread_monitor_exit(_vm->blockedVirtualThreadsMutex);
 				break;
 			}
 			case J9_OBJECT_MONITOR_OOM:
@@ -5227,13 +5232,13 @@ done:
 				if ((millis > 0) || (nanos > 0)) {
 					newState = JAVA_LANG_VIRTUALTHREAD_TIMED_WAITING;
 				}
+				J9VMJAVALANGVIRTUALTHREAD_SET_NOTIFIED(_currentThread, _currentThread->threadObject, JNI_FALSE);
 				/* Try to yield the virtual thread if it will be blocked. */
 				UDATA result = preparePinnedVirtualThreadForUnmount(_currentThread, object, true);
 				VMStructHasBeenUpdated(REGISTER_ARGS);
 				if (J9_OBJECT_MONITOR_OOM != result) {
 					restoreInternalNativeStackFrame(REGISTER_ARGS);
 					/* Handle the virtual thread Object.wait call. */
-					J9VMJAVALANGVIRTUALTHREAD_SET_NOTIFIED(_currentThread, _currentThread->threadObject, JNI_FALSE);
 					/* VirtualThread.timeout is a private field used by both VM and JCL to temporarily hold
 					 * the value of expected wait/park time before a wake up task is scheduled using the value.
 					 */
@@ -5784,6 +5789,7 @@ ffi_OOM:
 			j9object_t waitObject = *(j9object_t *)(_sp + 3);
 			rc = tryEnterBlockingMonitor(REGISTER_ARGS, waitObject, J9VM_CONTINUATION_RETURN_FROM_OBJECT_WAIT);
 			if ((NULL != _currentThread->currentContinuation) && (EXECUTE_BYTECODE == rc)) {
+				waitObject = *(j9object_t *)(_sp + 3);
 				omrthread_monitor_t monitor = getMonitorForWait(_currentThread, waitObject);
 				monitor->count = _currentThread->currentContinuation->waitingMonitorEnterCount;
 				_currentThread->currentContinuation->waitingMonitorEnterCount = 0;
