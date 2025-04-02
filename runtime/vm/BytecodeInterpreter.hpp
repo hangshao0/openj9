@@ -1537,6 +1537,15 @@ obj:
 		J9VMJAVALANGVIRTUALTHREAD_SET_STATE(_currentThread, _currentThread->threadObject, newThreadState);
 
 		if (JAVA_LANG_VIRTUALTHREAD_BLOCKING == newThreadState) {
+			if (J9_EVENT_IS_HOOKED(_vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTER)) {
+				//pushObjectInSpecialFrame(REGISTER_ARGS, J9VMTHREAD_BLOCKINGENTEROBJECT(_currentThread, _currentThread));
+				PUSH_OBJECT_IN_SPECIAL_FRAME(_currentThread, J9VMTHREAD_BLOCKINGENTEROBJECT(_currentThread, _currentThread));
+				ALWAYS_TRIGGER_J9HOOK_VM_MONITOR_CONTENDED_ENTER(_vm->hookInterface, _currentThread, continuation->objectWaitMonitor->monitor);
+				//j9object_t object = popObjectInSpecialFrame(REGISTER_ARGS);
+				j9object_t object = POP_OBJECT_IN_SPECIAL_FRAME(_currentThread);
+				VMStructHasBeenUpdated(REGISTER_ARGS);
+				J9VMTHREAD_SET_BLOCKINGENTEROBJECT(_currentThread, _currentThread, object);
+			}
 			/* Add the thread object to the blocked list. */
 			omrthread_monitor_enter(_vm->blockedVirtualThreadsMutex);
 			continuation->nextWaitingContinuation = _vm->blockedContinuations;
