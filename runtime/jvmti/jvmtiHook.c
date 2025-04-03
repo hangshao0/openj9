@@ -2105,7 +2105,6 @@ jvmtiHookMonitorContendedEnter(J9HookInterface** hook, UDATA eventNum, void* eve
 			if ( lock && ((lock->flags & J9THREAD_MONITOR_OBJECT) == J9THREAD_MONITOR_OBJECT) ) {
 				objectRef = (jobject) vm->internalVMFunctions->j9jni_createLocalRef((JNIEnv *) currentThread, (j9object_t)lock->userData);
 			}
-
 			vm->internalVMFunctions->internalExitVMToJNI(currentThread);
 			callback((jvmtiEnv *) j9env, (JNIEnv *) currentThread, threadRef, objectRef);
 			finishedEvent(currentThread, JVMTI_EVENT_MONITOR_CONTENDED_ENTER, hadVMAccess, javaOffloadOldState);

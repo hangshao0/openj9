@@ -1203,9 +1203,7 @@ obj:
 					/* Try to yield the virtual thread if it will be blocked. */
 					buildInternalNativeStackFrame(REGISTER_ARGS);
 					updateVMStruct(REGISTER_ARGS);
-
 					rc = preparePinnedVirtualThreadForUnmount(_currentThread, obj, false);
-
 					VMStructHasBeenUpdated(REGISTER_ARGS);
 					restoreInternalNativeStackFrame(REGISTER_ARGS);
 				} else
@@ -1220,18 +1218,24 @@ obj:
 #if JAVA_SPEC_VERSION >= 24
 		if (rc == (UDATA)obj) {
 			J9VMContinuation *continuation = _currentThread->currentContinuation;
-			if (NULL != continuation && NULL != continuation->jvmtiMetadata) {
-				Assert_VM_true(IS_JAVA_LANG_VIRTUALTHREAD(_currentThread, _currentThread->threadObject));
-				Assert_VM_true(J9_EVENT_IS_HOOKED(_vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTERED));
-				J9ObjectMonitor *objectMonitor = monitorTableAt(_currentThread, obj);
-				I_64 startTicks = (I_64)continuation->jvmtiMetadata->data0;
-				PORT_ACCESS_FROM_JAVAVM(_vm);
-				J9VMThread *previousOwner = (J9VMThread *)continuation->jvmtiMetadata->data1;
-				ALWAYS_TRIGGER_J9HOOK_VM_MONITOR_CONTENDED_ENTERED(_vm->hookInterface, _currentThread, objectMonitor->monitor,
-						startTicks, J9OBJECT_CLAZZ(currentThread, obj), previousOwner);
-				j9mem_free_memory(continuation->jvmtiMetadata);
-				continuation->jvmtiMetadata = NULL;
+			if (NULL != continuation) {
+				if (NULL != continuation->jvmtiMetadata) {
+					Assert_VM_true(IS_JAVA_LANG_VIRTUALTHREAD(_currentThread, _currentThread->threadObject));
+					Assert_VM_true(J9_EVENT_IS_HOOKED(_vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTERED));
+					J9ObjectMonitor *objectMonitor = monitorTableAt(_currentThread, obj);
+					I_64 startTicks = (I_64)continuation->jvmtiMetadata->data0;
+					PORT_ACCESS_FROM_JAVAVM(_vm);
+					J9VMThread *previousOwner = (J9VMThread *)continuation->jvmtiMetadata->data1;
+					ALWAYS_TRIGGER_J9HOOK_VM_MONITOR_CONTENDED_ENTERED(_vm->hookInterface, _currentThread, objectMonitor->monitor,
+							startTicks, J9OBJECT_CLAZZ(currentThread, obj), previousOwner);
+
+					j9mem_free_memory(continuation->jvmtiMetadata);
+					continuation->jvmtiMetadata = NULL;
+				}
+				/* Do not need to recored whether if contend monitor enter event is triggered after entered the monitor */
+				continuation->runtimeFlags &= ~J9VM_CONTINUATION_RUNTIMEFLAG_JVMTI_CONTENDED_MONITOR_ENTER_RECORDED;
 			}
+
 		}
 #endif /* JAVA_SPEC_VERSION >= 24 */
 		return rc;
@@ -1554,22 +1558,53 @@ obj:
 		J9VMJAVALANGVIRTUALTHREAD_SET_STATE(_currentThread, _currentThread->threadObject, newThreadState);
 
 		if (JAVA_LANG_VIRTUALTHREAD_BLOCKING == newThreadState) {
-			if (J9_EVENT_IS_HOOKED(_vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTER)) {
+			if (J9_EVENT_IS_HOOKED(_vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTER)
+				&& J9_ARE_NO_BITS_SET(continuation->runtimeFlags, J9VM_CONTINUATION_RUNTIMEFLAG_JVMTI_CONTENDED_MONITOR_ENTER_RECORDED)
+			) {
+				/*
 				PUSH_OBJECT_IN_SPECIAL_FRAME(_currentThread, J9VMTHREAD_BLOCKINGENTEROBJECT(_currentThread, _currentThread));
 				ALWAYS_TRIGGER_J9HOOK_VM_MONITOR_CONTENDED_ENTER(_vm->hookInterface, _currentThread, continuation->objectWaitMonitor->monitor);
 				j9object_t object = POP_OBJECT_IN_SPECIAL_FRAME(_currentThread);
 				VMStructHasBeenUpdated(REGISTER_ARGS);
 				J9VMTHREAD_SET_BLOCKINGENTEROBJECT(_currentThread, _currentThread, object);
+				*/
+				/*
+				J9ThreadAbstractMonitor* monitor = continuation->objectWaitMonitor->monitor;
+				j9object_t object = (j9object_t)monitor->userData;
+				bool frameBuilt = false;
+				if (!IS_SPECIAL_FRAME_PC(_pc)) {
+					buildGenericSpecialStackFrame(REGISTER_ARGS, 0);
+					frameBuilt = true;
+				}
+
+				pushObjectInSpecialFrame(REGISTER_ARGS, object);
+				updateVMStruct(REGISTER_ARGS);
+				*/
+				bool recoverFlag = false;
+				if (J9_ARE_ALL_BITS_SET(_currentThread->privateFlags, J9_PRIVATE_FLAGS_VIRTUAL_THREAD_HIDDEN_FRAMES)) {
+					_currentThread->privateFlags &= ~J9_PRIVATE_FLAGS_VIRTUAL_THREAD_HIDDEN_FRAMES;
+					recoverFlag = true;
+				}
+				ALWAYS_TRIGGER_J9HOOK_VM_MONITOR_CONTENDED_ENTER(_vm->hookInterface, _currentThread, continuation->objectWaitMonitor->monitor);
+				if (recoverFlag) {
+					_currentThread->privateFlags |= J9_PRIVATE_FLAGS_VIRTUAL_THREAD_HIDDEN_FRAMES;
+				}
+
+				/*
+				VMStructHasBeenUpdated(REGISTER_ARGS);
+				object = popObjectInSpecialFrame(REGISTER_ARGS);
+				monitor->userData = (UDATA)object;
+				if (frameBuilt) {
+					restoreGenericSpecialStackFrame(REGISTER_ARGS);
+				}
+				*/
 			}
-			if (J9_EVENT_IS_HOOKED(_vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTERED)) {
-				PORT_ACCESS_FROM_JAVAVM(_vm);
-				if (NULL == continuation->jvmtiMetadata) {
-					continuation->jvmtiMetadata = (J9JVMTIMetaData*)j9mem_allocate_memory(sizeof(J9JVMTIMetaData), J9MEM_CATEGORY_VM);
-				}
-				if (NULL != continuation->jvmtiMetadata) {
-					continuation->jvmtiMetadata->data0 = (UDATA)j9time_nano_time();
-					continuation->jvmtiMetadata->data1 = (UDATA)continuation->objectWaitMonitor->monitor->owner;
-				}
+			if (J9_EVENT_IS_HOOKED(_vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTER) || J9_EVENT_IS_HOOKED(_vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTERED)) {
+				/* It is possible that a continuation reaches yieldPinnedContinuation multiple times trying to enter the same monitor.
+				 * The MONITOR_CONTENDED_ENTER event should be triggered only once.
+				 * J9VM_CONTINUATION_RUNTIMEFLAG_JVMTI_CONTENDED_MONITOR_ENTER_RECORDED is cleared once entered the monitor.
+				*/
+				continuation->runtimeFlags |= J9VM_CONTINUATION_RUNTIMEFLAG_JVMTI_CONTENDED_MONITOR_ENTER_RECORDED;
 			}
 			/* Add the thread object to the blocked list. */
 			omrthread_monitor_enter(_vm->blockedVirtualThreadsMutex);

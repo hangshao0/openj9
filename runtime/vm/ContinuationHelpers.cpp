@@ -420,6 +420,8 @@ recycleContinuation(J9JavaVM *vm, J9VMThread *vmThread, J9VMContinuation* contin
 	bool cached = false;
 	vm->totalContinuationStackSize += continuation->stackObject->size;
 
+	j9mem_free_memory(continuation->jvmtiMetadata);
+
 	if (!skipLocalCache && (0 < vm->continuationT1Size)) {
 		/* If called by carrier thread (not global), try to store in local cache first.
 		 * Allocate cacheArray if it doesn't exist.
@@ -466,7 +468,6 @@ T2:
 				pool_kill(continuation->monitorEnterRecordPool);
 			}
 #endif /* JAVA_SPEC_VERSION >= 24 */
-			j9mem_free_memory(continuation);
 		}
 	}
 }
@@ -967,6 +968,19 @@ restart:
 #endif /* J9VM_THR_LOCK_RESERVATION */
 				syncObjectMonitor = monitorTableAt(currentThread, syncObj);
 				monitor = syncObjectMonitor->monitor;
+
+
+				if (J9_EVENT_IS_HOOKED(vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTERED) && J9_ARE_NO_BITS_SET(currentThread->currentContinuation->runtimeFlags, J9VM_CONTINUATION_RUNTIMEFLAG_JVMTI_CONTENDED_MONITOR_ENTER_RECORDED)) {
+					PORT_ACCESS_FROM_JAVAVM(vm);
+					if (NULL == currentThread->currentContinuation->jvmtiMetadata) {
+						currentThread->currentContinuation->jvmtiMetadata = (J9JVMTIMetaData*)j9mem_allocate_memory(sizeof(J9JVMTIMetaData), J9MEM_CATEGORY_VM);
+					}
+					if (NULL != currentThread->currentContinuation->jvmtiMetadata) {
+						J9VMThread *previousOwner = getVMThreadFromOMRThread(vm, ((J9ThreadMonitor *)monitor)->owner);
+						currentThread->currentContinuation->jvmtiMetadata->data0 = (UDATA)j9time_nano_time();
+						currentThread->currentContinuation->jvmtiMetadata->data1 = (UDATA)previousOwner;
+					}
+				}
 
 				/* Try acquire the inflated monitor */
 				if (0 == omrthread_monitor_try_enter(monitor)) {

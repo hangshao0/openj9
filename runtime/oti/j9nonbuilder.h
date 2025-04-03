@@ -5449,8 +5449,9 @@ typedef struct J9JVMTIMetaData {
 	UDATA data0;
 	UDATA data1;
 } J9JVMTIMetaData;
-#endif /* JAVA_SPEC_VERSION >= 24 */
 
+#endif /* JAVA_SPEC_VERSION >= 24 */
+#define J9VM_CONTINUATION_RUNTIMEFLAG_JVMTI_CONTENDED_MONITOR_ENTER_RECORDED 0x1
 typedef struct J9VMContinuation {
 	UDATA* arg0EA;
 	UDATA* bytecodes;
@@ -5468,6 +5469,7 @@ typedef struct J9VMContinuation {
 	UDATA dropFlags;
 	UDATA returnState;
 #if JAVA_SPEC_VERSION >= 24
+	UDATA runtimeFlags;
 	IDATA waitingMonitorEnterCount;
 	UDATA ownedMonitorCount;
 	struct J9Pool* monitorEnterRecordPool;
