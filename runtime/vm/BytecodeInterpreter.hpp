@@ -1217,6 +1217,23 @@ obj:
 				}
 			}
 		}
+#if JAVA_SPEC_VERSION >= 24
+		if (rc == (UDATA)obj) {
+			J9VMContinuation *continuation = _currentThread->currentContinuation;
+			if (NULL != continuation && NULL != continuation->jvmtiMetadata) {
+				Assert_VM_true(IS_JAVA_LANG_VIRTUALTHREAD(_currentThread, _currentThread->threadObject));
+				Assert_VM_true(J9_EVENT_IS_HOOKED(_vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTERED));
+				J9ObjectMonitor *objectMonitor = monitorTableAt(_currentThread, obj);
+				I_64 startTicks = (I_64)continuation->jvmtiMetadata->data0;
+				PORT_ACCESS_FROM_JAVAVM(_vm);
+				J9VMThread *previousOwner = (J9VMThread *)continuation->jvmtiMetadata->data1;
+				ALWAYS_TRIGGER_J9HOOK_VM_MONITOR_CONTENDED_ENTERED(_vm->hookInterface, _currentThread, objectMonitor->monitor,
+						startTicks, J9OBJECT_CLAZZ(currentThread, obj), previousOwner);
+				j9mem_free_memory(continuation->jvmtiMetadata);
+				continuation->jvmtiMetadata = NULL;
+			}
+		}
+#endif /* JAVA_SPEC_VERSION >= 24 */
 		return rc;
 	}
 
@@ -1538,13 +1555,21 @@ obj:
 
 		if (JAVA_LANG_VIRTUALTHREAD_BLOCKING == newThreadState) {
 			if (J9_EVENT_IS_HOOKED(_vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTER)) {
-				//pushObjectInSpecialFrame(REGISTER_ARGS, J9VMTHREAD_BLOCKINGENTEROBJECT(_currentThread, _currentThread));
 				PUSH_OBJECT_IN_SPECIAL_FRAME(_currentThread, J9VMTHREAD_BLOCKINGENTEROBJECT(_currentThread, _currentThread));
 				ALWAYS_TRIGGER_J9HOOK_VM_MONITOR_CONTENDED_ENTER(_vm->hookInterface, _currentThread, continuation->objectWaitMonitor->monitor);
-				//j9object_t object = popObjectInSpecialFrame(REGISTER_ARGS);
 				j9object_t object = POP_OBJECT_IN_SPECIAL_FRAME(_currentThread);
 				VMStructHasBeenUpdated(REGISTER_ARGS);
 				J9VMTHREAD_SET_BLOCKINGENTEROBJECT(_currentThread, _currentThread, object);
+			}
+			if (J9_EVENT_IS_HOOKED(_vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTERED)) {
+				PORT_ACCESS_FROM_JAVAVM(_vm);
+				if (NULL == continuation->jvmtiMetadata) {
+					continuation->jvmtiMetadata = (J9JVMTIMetaData*)j9mem_allocate_memory(sizeof(J9JVMTIMetaData), J9MEM_CATEGORY_VM);
+				}
+				if (NULL != continuation->jvmtiMetadata) {
+					continuation->jvmtiMetadata->data0 = (UDATA)j9time_nano_time();
+					continuation->jvmtiMetadata->data1 = (UDATA)continuation->objectWaitMonitor->monitor->owner;
+				}
 			}
 			/* Add the thread object to the blocked list. */
 			omrthread_monitor_enter(_vm->blockedVirtualThreadsMutex);

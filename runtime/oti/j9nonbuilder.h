@@ -5444,6 +5444,11 @@ typedef uintptr_t ContinuationState;
 #define J9VM_CONTINUATION_RETURN_FROM_OBJECT_WAIT   2
 #define J9VM_CONTINUATION_RETURN_FROM_SYNC_METHOD   3
 #define J9VM_CONTINUATION_RETURN_FROM_JIT_MONITOR_ENTER 4
+
+typedef struct J9JVMTIMetaData {
+	UDATA data0;
+	UDATA data1;
+} J9JVMTIMetaData;
 #endif /* JAVA_SPEC_VERSION >= 24 */
 
 typedef struct J9VMContinuation {
@@ -5472,6 +5477,7 @@ typedef struct J9VMContinuation {
 	struct J9VMContinuation* nextWaitingContinuation;
 	struct J9ObjectMonitor* objectWaitMonitor;
 	struct J9ObjectMonitor* enteredMonitors;
+	struct J9JVMTIMetaData* jvmtiMetadata;
 #endif /* JAVA_SPEC_VERSION >= 24 */
 } J9VMContinuation;
 #endif /* JAVA_SPEC_VERSION >= 19 */
