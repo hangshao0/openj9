@@ -726,6 +726,20 @@ jvmtiGetOwnedMonitorInfo(jvmtiEnv *env,
 			J9VMContinuation *continuation = NULL;
 
 			if ((NULL == targetThread) && IS_JAVA_LANG_VIRTUALTHREAD(currentThread, threadObject)) {
+				continuation = getJ9VMContinuationToWalk(currentThread, targetThread, threadObject);
+				if (NULL != continuation) {
+					vm->internalVMFunctions->copyFieldsFromContinuation(currentThread, &stackThread, &els, continuation);
+					threadToWalk = &stackThread;
+					count = continuation->ownedMonitorCount;
+					locks = (jobject *)j9mem_allocate_memory(sizeof(jobject) * count, J9MEM_CATEGORY_JVMTI_ALLOCATE);
+					if (NULL == locks) {
+						rc = JVMTI_ERROR_OUT_OF_MEMORY;
+					} else if (0 != count) {
+						count = walkLocalMonitorRefs(currentThread, locks, targetThread, threadToWalk, count);
+					}
+					rv_owned_monitors = locks;
+					rv_owned_monitor_count = count;
+				}
 				goto release;
 			}
 #endif /* JAVA_SPEC_VERSION >= 19 */

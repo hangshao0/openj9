@@ -2092,7 +2092,7 @@ jvmtiHookMonitorContendedEnter(J9HookInterface** hook, UDATA eventNum, void* eve
 
 	/* Call the event callback */
 
-	if ((NULL != callback) && shouldPostEvent(currentThread, NULL)) {
+	if ((NULL != callback)) {
 		J9ThreadAbstractMonitor * lock = (J9ThreadAbstractMonitor*)data->monitor;
 		jthread threadRef;
 		UDATA hadVMAccess;
@@ -2130,7 +2130,7 @@ jvmtiHookMonitorContendedEntered(J9HookInterface** hook, UDATA eventNum, void* e
 
 	/* Call the event callback */
 
-	if ((NULL != callback) && shouldPostEvent(currentThread, NULL)) {
+	if ((NULL != callback)) {
 		J9ThreadAbstractMonitor * lock = (J9ThreadAbstractMonitor*)data->monitor;
 		jthread threadRef;
 		UDATA hadVMAccess;
