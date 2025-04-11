@@ -37,7 +37,7 @@ typedef struct J9JVMTIRunAgentThreadArgs {
 } J9JVMTIRunAgentThreadArgs;
 
 static int J9THREAD_PROC agentThreadStart(void *entryArg);
-static jint walkLocalMonitorRefs(J9VMThread* currentThread, jobject *locks, J9VMThread *targetThread, J9VMThread *walkThread, UDATA maxCount);
+static jint walkLocalMonitorRefs(J9VMThread* currentThread, jobject *locks, J9VMThread *targetThread, J9VMThread *walkThread, UDATA maxCount, J9VMContinuation* con);
 static jvmtiError resumeThread(J9VMThread *currentThread, jthread thread);
 static UDATA wrappedAgentThreadStart(J9PortLibrary *portLib, void *entryArg);
 static void ownedMonitorIterator(J9VMThread *currentThread, J9StackWalkState *walkState, j9object_t *slot, const void *stackLocation);
@@ -735,7 +735,7 @@ jvmtiGetOwnedMonitorInfo(jvmtiEnv *env,
 					if (NULL == locks) {
 						rc = JVMTI_ERROR_OUT_OF_MEMORY;
 					} else if (0 != count) {
-						count = walkLocalMonitorRefs(currentThread, locks, targetThread, threadToWalk, count);
+						count = walkLocalMonitorRefs(currentThread, locks, targetThread, threadToWalk, count, continuation);
 					}
 					rv_owned_monitors = locks;
 					rv_owned_monitor_count = count;
@@ -755,7 +755,7 @@ jvmtiGetOwnedMonitorInfo(jvmtiEnv *env,
 			}
 #endif /* JAVA_SPEC_VERSION >= 19 */
 
-			count = walkLocalMonitorRefs(currentThread, NULL, targetThread, threadToWalk, UDATA_MAX);
+			count = walkLocalMonitorRefs(currentThread, NULL, targetThread, threadToWalk, UDATA_MAX, NULL);
 
 			locks = (jobject *)j9mem_allocate_memory(sizeof(jobject) * count, J9MEM_CATEGORY_JVMTI_ALLOCATE);
 			if (NULL == locks) {
@@ -765,7 +765,7 @@ jvmtiGetOwnedMonitorInfo(jvmtiEnv *env,
 				 * Only fill up 'locks' with number of monitors recorded in the first pass.
 				 * Suppress any newly acquired monitors in between.
 				 */
-				count = walkLocalMonitorRefs(currentThread, locks, targetThread, threadToWalk, count);
+				count = walkLocalMonitorRefs(currentThread, locks, targetThread, threadToWalk, count, NULL);
 			}
 			rv_owned_monitors = locks;
 			rv_owned_monitor_count = count;
@@ -1316,14 +1316,51 @@ wrappedAgentThreadStart(J9PortLibrary *portLib, void *entryArg)
 	return 0;
 }
 
+static bool
+isSameOwner(J9VMThread *currentThread, j9object_t lockObject, UDATA target)
+{
+	J9JavaVM *vm = currentThread->javaVM;
+	bool isJ9VMThread = J9_ARE_NO_BITS_SET(target, 1);
+	if (isJ9VMThread) {
+		printf("\n------------------- target thread is %lx ---------------------------------\n", target);
+		return target == (UDATA)getObjectMonitorOwner(vm, lockObject, NULL);
+	} else {
+		target &= ~1;
+		J9VMContinuation* con = (J9VMContinuation*)target ;
+
+		J9ObjectMonitor *objectMonitor = NULL;
+		j9objectmonitor_t lock = 0;
+		if (!LN_HAS_LOCKWORD_VM(vm, lockObject)) {
+			J9ObjectMonitor *objectMonitor = monitorTablePeek(vm, lockObject);
+			if (objectMonitor != NULL){
+				lock = J9_LOAD_LOCKWORD_VM(vm, &objectMonitor->alternateLockword);
+			} else {
+				lock = 0;
+			}
+		} else {
+			lock = J9OBJECT_MONITOR_VM(vm, lockObject);
+		}
+
+		if (J9_LOCK_IS_INFLATED(lock)) {
+			objectMonitor = J9_INFLLOCK_OBJECT_MONITOR(lock);
+		}
+		if (NULL != objectMonitor) {
+			return objectMonitor->ownerContinuation == con;
+		}
+	}
+	return false;
+}
+
+
 static void
 ownedMonitorIterator(J9VMThread *currentThread, J9StackWalkState *walkState, j9object_t *slot, const void *stackLocation)
 {
 	J9JavaVM *vm = currentThread->javaVM;
-	J9VMThread *targetThread = (J9VMThread *)walkState->userData1;
+	UDATA targetThread = (UDATA)walkState->userData1;
 	jobject *locks = (jobject *)walkState->userData2;
 	UDATA count = (UDATA)walkState->userData3;
 	j9object_t obj = (NULL != slot) ? *slot : NULL;
+
 
 	if (count >= (UDATA)walkState->userData4) {
 		/* PMR 69633,001,866 / CMVC 197115.
@@ -1337,7 +1374,7 @@ ownedMonitorIterator(J9VMThread *currentThread, J9StackWalkState *walkState, j9o
 	}
 
 	if ((NULL != obj)
-	&& (getObjectMonitorOwner(vm, obj, NULL) == targetThread)
+	&& (isSameOwner(currentThread, obj, targetThread))
 	&& !isObjectStackAllocated(walkState->walkThread, obj)
 	) {
 		if (NULL != locks) {
@@ -1355,7 +1392,7 @@ ownedMonitorIterator(J9VMThread *currentThread, J9StackWalkState *walkState, j9o
 }
 
 static jint
-walkLocalMonitorRefs(J9VMThread *currentThread, jobject *locks, J9VMThread *targetThread, J9VMThread *walkThread, UDATA maxCount)
+walkLocalMonitorRefs(J9VMThread *currentThread, jobject *locks, J9VMThread *targetThread, J9VMThread *walkThread, UDATA maxCount, J9VMContinuation* con)
 {
 	J9JavaVM *vm = currentThread->javaVM;
 	J9StackWalkState walkState = {0};
@@ -1363,7 +1400,7 @@ walkLocalMonitorRefs(J9VMThread *currentThread, jobject *locks, J9VMThread *targ
 	pool_state poolState = {0};
 	j9object_t *ref = NULL;
 
-	walkState.userData1 = targetThread;                     /* target thread */
+	walkState.userData1 = (targetThread == NULL) ? (void*)((UDATA)con | 0x1) : targetThread ;                     /* target thread */
 	walkState.userData2 = locks;                            /* array */
 	walkState.userData3 = (void *)0;                        /* count */
 	walkState.userData4 = (void *)maxCount;                 /* max count */
@@ -1375,16 +1412,18 @@ walkLocalMonitorRefs(J9VMThread *currentThread, jobject *locks, J9VMThread *targ
 	/* Check the Java stack. */
 	vm->walkStackFrames(currentThread, &walkState);
 
-	frame = (J9JNIReferenceFrame *)targetThread->jniLocalReferences;
+	if (NULL != targetThread) {
+		frame = (J9JNIReferenceFrame *)targetThread->jniLocalReferences;
 
-	/* Check the local JNI refs. */
-	while (NULL != frame) {
-		ref = (j9object_t *)pool_startDo((J9Pool *)frame->references, &poolState);
-		while (NULL != ref) {
-			ownedMonitorIterator(currentThread, &walkState, ref, ref);
-			ref = (j9object_t *)pool_nextDo(&poolState);
+		/* Check the local JNI refs. */
+		while (NULL != frame) {
+			ref = (j9object_t *)pool_startDo((J9Pool *)frame->references, &poolState);
+			while (NULL != ref) {
+				ownedMonitorIterator(currentThread, &walkState, ref, ref);
+				ref = (j9object_t *)pool_nextDo(&poolState);
+			}
+			frame = frame->previous;
 		}
-		frame = frame->previous;
 	}
 
 	return (jint)(IDATA)(UDATA)walkState.userData3;
