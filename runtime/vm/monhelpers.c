@@ -42,6 +42,9 @@ objectMonitorExit(J9VMThread* vmStruct, j9object_t object)
 
 	Trc_VM_objectMonitorExit_Entry(vmStruct, object);
 
+
+
+
 	if (!LN_HAS_LOCKWORD(vmStruct, object)) {
 		J9ObjectMonitor *objectMonitor = NULL;
 
@@ -239,6 +242,13 @@ restart:
 			omrthread_monitor_exit(vmStruct->javaVM->blockedVirtualThreadsMutex);
 		}
 #endif /* JAVA_SPEC_VERSION >= 24 */
+		{
+		J9VMThread* currentThread = vmStruct->javaVM->internalVMFunctions->currentVMThread(vmStruct->javaVM);
+		if (currentThread != vmStruct) {
+			Trc_VM_objectMonitorExit_Exit_IllegalInflatedLock(vmStruct,currentThread, vmStruct);
+			Trc_VM_objectMonitorExit_Exit_IllegalInflatedLock(currentThread,  monitor->owner, vmStruct->osThread);
+		}
+		}
 		Trc_VM_objectMonitorExit_Exit_InflatedLock(vmStruct, rc);
 		goto done;
 	} else {
