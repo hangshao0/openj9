@@ -265,6 +265,8 @@ enterContinuation(J9VMThread *currentThread, j9object_t continuationObject)
 
 	VM_ContinuationHelpers::swapFieldsWithContinuation(currentThread, continuation, continuationObject, started);
 
+	Trc_VM_enterContinuation_Swap(currentThread, continuation, vm->internalVMFunctions->currentVMThread(vm));
+
 	currentThread->currentContinuation = continuation;
 	/* Reset counters which determine if the current continuation is pinned. */
 	currentThread->continuationPinCount = 0;
@@ -328,6 +330,7 @@ yieldContinuation(J9VMThread *currentThread, BOOLEAN isFinished, UDATA returnSta
 
 	currentThread->currentContinuation = NULL;
 	VM_ContinuationHelpers::swapFieldsWithContinuation(currentThread, continuation, continuationObject);
+	Trc_VM_yieldContinuation_Swap(currentThread, continuation, currentThread->javaVM->internalVMFunctions->currentVMThread(currentThread->javaVM));
 
 	/* We need a full fence here to preserve happens-before relationship on PPC and other weakly
 	 * ordered architectures since learning/reservation is turned on by default. Since we have the
@@ -781,6 +784,7 @@ detachMonitorInfo(J9VMThread *currentThread, j9object_t lockObject)
 
 	J9ThreadAbstractMonitor *monitor = (J9ThreadAbstractMonitor *)objectMonitor->monitor;
 	monitor->owner = (J9Thread *)J9_OBJECT_MONITOR_OWNER_DETACHED;
+	VM_AtomicSupport::readWriteBarrier();
 	objectMonitor->ownerContinuation = currentThread->currentContinuation;
 
 	return objectMonitor;
@@ -791,6 +795,7 @@ updateMonitorInfo(J9VMThread *currentThread, J9ObjectMonitor *objectMonitor)
 {
 	J9ThreadAbstractMonitor *monitor = (J9ThreadAbstractMonitor *)objectMonitor->monitor;
 	monitor->owner = currentThread->osThread;
+	VM_AtomicSupport::readWriteBarrier();
 	objectMonitor->ownerContinuation = NULL;
 }
 
@@ -921,6 +926,7 @@ preparePinnedVirtualThreadForUnmount(J9VMThread *currentThread, j9object_t syncO
 	J9JavaVM *vm = currentThread->javaVM;
 	J9VMContinuation *continuation = currentThread->currentContinuation;
 
+
 	if (NULL != syncObj) {
 		j9objectmonitor_t volatile *lwEA = VM_ObjectMonitor::inlineGetLockAddress(currentThread, syncObj);
 		j9objectmonitor_t lock = J9_LOAD_LOCKWORD(currentThread, lwEA);
@@ -941,6 +947,8 @@ preparePinnedVirtualThreadForUnmount(J9VMThread *currentThread, j9object_t syncO
 				 * Since a monitor can only be inflated by a thread that owns it, we can't directly
 				 * inflate the blocking monitor.
 				 */
+				J9Class *clazz = J9OBJECT_CLAZZ(currentThread, syncObj);
+				BOOLEAN print = 0 == strncmp("MiscMonitorTests$TestContentionWithSyncMethods", (const char*)J9UTF8_DATA(J9ROMCLASS_CLASSNAME(clazz->romClass)), J9UTF8_LENGTH(J9ROMCLASS_CLASSNAME(clazz->romClass)));
 restart:
 #if defined(J9VM_THR_LOCK_RESERVATION)
 				{
@@ -975,6 +983,9 @@ restart:
 				if (0 == omrthread_monitor_try_enter(monitor)) {
 					/* If the INFLATED bit is set, then it is already inflated and we own the object monitor. */
 					if (J9_ARE_ANY_BITS_SET(((J9ThreadMonitor *)monitor)->flags, J9THREAD_MONITOR_INFLATED)) {
+						if (print) {
+							Trc_VM_preparePinnedVirtualThreadForUnmount_event0(currentThread, syncObj, syncObjectMonitor, currentThread->ownedMonitorCount);
+						}
 						currentThread->ownedMonitorCount += 1;
 						result = (UDATA)syncObj;
 						goto success;
@@ -1004,6 +1015,9 @@ restart:
 
 							if (J9_FLATLOCK_OWNER(lock) == currentThread) {
 								/* Lock is acquired. */
+								if (print) {
+									Trc_VM_preparePinnedVirtualThreadForUnmount_event1(currentThread, syncObj, lock, currentThread->ownedMonitorCount);
+								}
 								currentThread->ownedMonitorCount += 1;
 								result = (UDATA)syncObj;
 								goto success;
@@ -1077,7 +1091,12 @@ restart:
 		}
 		continuation->enteredMonitors = enteredMonitorsList;
 	}
-	Assert_VM_true(monitorCount <= currentThread->ownedMonitorCount);
+
+	if (monitorCount > currentThread->ownedMonitorCount) {
+		printf("\n---------------------------currentThread %llx: monitorCount is %d,  ownedMonitorCount is %d\n", (long long)currentThread, (int)monitorCount, (int)currentThread->ownedMonitorCount);
+		Assert_VM_true(monitorCount <= currentThread->ownedMonitorCount);
+	}
+
 
 	if (NULL != syncObj) {
 		j9object_t continuationObj = J9VMJAVALANGVIRTUALTHREAD_CONT(currentThread, currentThread->threadObject);
@@ -1116,6 +1135,18 @@ restart:
 	currentThread->osThread->lockedmonitorcount -= monitorCount;
 
 done:
+	if (J9_OBJECT_MONITOR_OOM == result) {
+		/* Revert monitor detach operations. */
+		J9ObjectMonitor *head = continuation->enteredMonitors;
+		while (NULL != head) {
+
+			updateMonitorInfo(currentThread, head);
+			J9ObjectMonitor *next = head->next;
+			head->next = NULL;
+			head = next;
+		}
+		continuation->enteredMonitors = NULL;
+	}
 	if (NULL != syncObj) {
 		if (J9_OBJECT_MONITOR_YIELD_VIRTUAL != result) {
 			VM_VMHelpers::virtualThreadHideFrames(currentThread, JNI_FALSE);

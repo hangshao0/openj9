@@ -210,6 +210,10 @@ releasedAccess:
 				Trc_VM_objectMonitorEnterBlocking_alreadyInflated(currentThread);
 				internalAcquireVMAccess(currentThread);
 #if JAVA_SPEC_VERSION >= 19
+				BOOLEAN print = 0 == strncmp("MiscMonitorTests$TestContentionWithSyncMethods", (const char*)J9UTF8_DATA(J9ROMCLASS_CLASSNAME(ramClass->romClass)), J9UTF8_LENGTH(J9ROMCLASS_CLASSNAME(ramClass->romClass)));
+				if (print) {
+					Trc_VM_objectMonitorEnterBlocking_event0(currentThread, object, objectMonitor, currentThread->ownedMonitorCount);
+				}
 				currentThread->ownedMonitorCount += 1;
 #endif /* JAVA_SPEC_VERSION >= 19 */
 				goto done;
@@ -430,6 +434,13 @@ restart:
 				}
 			}
 #if JAVA_SPEC_VERSION >= 19
+			{
+				J9Class *clazz = J9OBJECT_CLAZZ(currentThread, object);
+				BOOLEAN print = 0 == strncmp("MiscMonitorTests$TestContentionWithSyncMethods", (const char*)J9UTF8_DATA(J9ROMCLASS_CLASSNAME(clazz->romClass)), J9UTF8_LENGTH(J9ROMCLASS_CLASSNAME(clazz->romClass)));
+				if (print) {
+					Trc_VM_objectMonitorEnterNonBlocking_event0(currentThread, object, lock, currentThread->ownedMonitorCount);
+				}
+			}
 			currentThread->ownedMonitorCount += 1;
 #endif /* JAVA_SPEC_VERSION >= 19 */
 			/* no barrier is required in the recursive case */
@@ -595,6 +606,11 @@ spinOnFlatLock(J9VMThread *currentThread, j9objectmonitor_t volatile *lwEA, j9ob
 							/* compare and swap succeeded */
 							VM_AtomicSupport::readBarrier();
 #if JAVA_SPEC_VERSION >= 19
+							J9Class *clazz = J9OBJECT_CLAZZ(currentThread, object);
+							BOOLEAN print = 0 == strncmp("MiscMonitorTests$TestContentionWithSyncMethods", (const char*)J9UTF8_DATA(J9ROMCLASS_CLASSNAME(clazz->romClass)), J9UTF8_LENGTH(J9ROMCLASS_CLASSNAME(clazz->romClass)));
+							if (print) {
+								Trc_VM_spinOnFlatLock_event(currentThread, object, lock, currentThread->ownedMonitorCount);
+							}
 							currentThread->ownedMonitorCount += 1;
 #endif /* JAVA_SPEC_VERSION >= 19 */
 							rc = true;
@@ -741,6 +757,11 @@ spinOnTryEnter(J9VMThread *currentThread, J9ObjectMonitor *objectMonitor, j9obje
 					/* try_enter succeeded - monitor is inflated */
 					rc = true;
 #if JAVA_SPEC_VERSION >= 19
+					J9Class *clazz = J9OBJECT_CLAZZ(currentThread, object);
+					BOOLEAN print = 0 == strncmp("MiscMonitorTests$TestContentionWithSyncMethods", (const char*)J9UTF8_DATA(J9ROMCLASS_CLASSNAME(clazz->romClass)), J9UTF8_LENGTH(J9ROMCLASS_CLASSNAME(clazz->romClass)));
+					if (print) {
+						Trc_VM_spinOnTryEnter_event(currentThread, object, objectMonitor, currentThread->ownedMonitorCount);
+					}
 					currentThread->ownedMonitorCount += 1;
 #endif /* JAVA_SPEC_VERSION >= 19 */
 				} else {

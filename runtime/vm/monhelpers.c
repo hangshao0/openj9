@@ -174,7 +174,10 @@ restart:
 #endif
 
 		if (monitor->owner != vmStruct->osThread) {
-			Trc_VM_objectMonitorExit_Exit_IllegalInflatedLock(vmStruct, monitor->owner, vmStruct->osThread);
+			J9JavaVM* vm = vmStruct->javaVM;
+			J9VMThread* currentThread = vm->internalVMFunctions->currentVMThread(vm);
+			Trc_VM_objectMonitorExit_Exit_IllegalInflatedLock(vmStruct, monitor->owner, getVMThreadFromOMRThread(vm, monitor->owner), vmStruct->osThread, currentThread);
+			Trc_VM_objectMonitorExit_Exit_Error(vmStruct, lock, object);
 			goto done;
 		}
 
