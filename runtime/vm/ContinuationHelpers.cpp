@@ -779,10 +779,26 @@ detachMonitorInfo(J9VMThread *currentThread, j9object_t lockObject)
 		objectMonitor = J9_INFLLOCK_OBJECT_MONITOR(lock);
 	}
 
+	Assert_VM_notNull(currentThread->currentContinuation);
+	VM_AtomicSupport::readWriteBarrier();
 	J9ThreadAbstractMonitor *monitor = (J9ThreadAbstractMonitor *)objectMonitor->monitor;
-	monitor->owner = (J9Thread *)J9_OBJECT_MONITOR_OWNER_DETACHED;
-	objectMonitor->ownerContinuation = currentThread->currentContinuation;
 
+	if (IS_J9_OBJECT_MONITOR_OWNER_DETACHED(monitor->owner)) {
+		Assert_VM_true(objectMonitor->ownerContinuation == currentThread->currentContinuation);
+	} else {
+		if (NULL == objectMonitor->ownerContinuation) {
+			objectMonitor->ownerContinuation = currentThread->currentContinuation;
+			VM_AtomicSupport::readWriteBarrier();
+			if (currentThread->osThread != monitor->owner) {
+				printf("Set J9ObjectMonitor to detached 0 os thread wrong, currentThread %p\n", currentThread);
+			}
+			printf("Set J9ObjectMonitor to detached: currentThread %p, J9ObjectMonitor %p, monitor is %p, monitor->owner %p, currentThread->osThread %p, Continuation is %p\n", currentThread, objectMonitor, monitor, monitor->owner, currentThread->osThread, currentThread->currentContinuation);
+			monitor->owner = (J9Thread *)J9_OBJECT_MONITOR_OWNER_DETACHED;
+			VM_AtomicSupport::readWriteBarrier();
+		} else {
+			Assert_VM_unreachable();
+		}
+	}
 	return objectMonitor;
 }
 
@@ -790,8 +806,17 @@ void
 updateMonitorInfo(J9VMThread *currentThread, J9ObjectMonitor *objectMonitor)
 {
 	J9ThreadAbstractMonitor *monitor = (J9ThreadAbstractMonitor *)objectMonitor->monitor;
-	monitor->owner = currentThread->osThread;
-	objectMonitor->ownerContinuation = NULL;
+
+	if (IS_J9_OBJECT_MONITOR_OWNER_DETACHED(monitor->owner)) {
+		Assert_VM_false(J9_OBJECT_MONITOR_OWNER_DETACHED == (UDATA)currentThread->osThread);
+		Assert_VM_true(objectMonitor->ownerContinuation == currentThread->currentContinuation);
+		monitor->owner = currentThread->osThread;
+		VM_AtomicSupport::readWriteBarrier();
+		objectMonitor->ownerContinuation = NULL;
+	} else {
+		Assert_VM_true(monitor->owner == currentThread->osThread);
+		Assert_VM_true(NULL == objectMonitor->ownerContinuation);
+	}
 }
 
 UDATA
@@ -1094,7 +1119,9 @@ restart:
 			/* Reset monitor entry count to 1.*/
 			monitor->count = 1;
 			/* Reset monitor state to pre-detach state so omrthread_monitor_exit behave correctly. */
+			Assert_VM_false(J9_OBJECT_MONITOR_OWNER_DETACHED == (UDATA)currentThread->osThread);
 			monitor->owner = currentThread->osThread;
+			VM_AtomicSupport::readWriteBarrier();
 			syncObjectMonitor->ownerContinuation = NULL;
 
 			/* Add Continuation struct to the monitor's waiting list. */

@@ -213,7 +213,12 @@ restart:
 		objectMonitor = J9_INFLLOCK_OBJECT_MONITOR(lock);
 		monitor = (J9ThreadAbstractMonitor *)objectMonitor->monitor;
 		Assert_VM_notNull(monitor);
-		Assert_VM_false(IS_J9_OBJECT_MONITOR_OWNER_DETACHED(monitor->owner));
+		if (IS_J9_OBJECT_MONITOR_OWNER_DETACHED(monitor->owner)) {
+			int *foo = NULL;
+			printf("1: vmStruct is %p, conti %p, objectMonitor is %p, monitor %p, objectMonitor->ownerContinuation is %p\n", vmStruct, vmStruct->currentContinuation, objectMonitor, monitor, objectMonitor->ownerContinuation);
+			//Trc_VM_objectMonitorExit_Exit_IllegalInflatedLock(vmStruct, objectMonitor->ownerContinuation, objectMonitor);
+			*foo = 1;
+		}
 
 #ifdef OMR_THR_ADAPTIVE_SPIN
 		/* for now we don't allow deflation if spinning has been disabled for this monitor
@@ -224,7 +229,7 @@ restart:
 #endif
 
 		if (monitor->owner != vmStruct->osThread) {
-			Trc_VM_objectMonitorExit_Exit_IllegalInflatedLock(vmStruct, monitor->owner, vmStruct->osThread);
+			//Trc_VM_objectMonitorExit_Exit_IllegalInflatedLock(vmStruct, monitor->owner, vmStruct->osThread);
 			goto done;
 		}
 
