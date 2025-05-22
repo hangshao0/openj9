@@ -1825,9 +1825,15 @@ obj:
 		_literals = _sendMethod;
 		_pc = _sendMethod->bytecodes;
 		UDATA volatile stackOverflowMark = (UDATA)_currentThread->stackOverflowMark;
+		if (NULL != _currentThread->currentContinuation && methodIsSynchronized) {
+			printf("currentThread %p skipStackOverflowCheck is %d _sp %lu stackOverflowMark %lu syncObject %p ownedMonitorCount %d\n", _currentThread, (int)skipStackOverflowCheck, (UDATA)_sp, stackOverflowMark, syncObject, (int)_currentThread->ownedMonitorCount);
+		}
 		if (skipStackOverflowCheck || ((UDATA)_sp >= stackOverflowMark)) {
 			if (methodIsSynchronized) {
 				UDATA monitorRC = enterObjectMonitor(REGISTER_ARGS, syncObject);
+				if (NULL != _currentThread->currentContinuation) {
+					printf("Entered: current thread %p syncObject %p, rc is %lx ownedMonitorCount %d\n", _currentThread, syncObject, monitorRC, (int)_currentThread->ownedMonitorCount);
+				}
 				/* Monitor enter can only fail in the nonblocking case, which does not
 				 * release VM access, so the immediate async and failed enter cases are
 				 * mutually exclusive.
@@ -2054,6 +2060,9 @@ throwStackOverflow:
 				 * release VM access, so the immediate async and failed enter cases are
 				 * mutually exclusive.
 				 */
+				if (NULL != _currentThread->currentContinuation) {
+					printf("stackoverflow: current thread %p syncObject %p, rc is %lx ownedMonitorCount %d\n", _currentThread, syncObject, monitorRC, (int)_currentThread->ownedMonitorCount);
+				}
 				if (immediateAsyncPending()) {
 					rc = GOTO_ASYNC_CHECK;
 					goto done;
@@ -2075,7 +2084,7 @@ throwStackOverflow:
 #endif /* defined(J9VM_OPT_CRIU_SUPPORT) */
 #if JAVA_SPEC_VERSION >= 24
 					case J9_OBJECT_MONITOR_YIELD_VIRTUAL: {
-						rc = yieldPinnedContinuation(REGISTER_ARGS, JAVA_LANG_VIRTUALTHREAD_BLOCKING, J9VM_CONTINUATION_RETURN_FROM_MONITOR_ENTER);
+						rc = yieldPinnedContinuation(REGISTER_ARGS, JAVA_LANG_VIRTUALTHREAD_BLOCKING, J9VM_CONTINUATION_RETURN_FROM_SYNC_METHOD);
 						break;
 					}
 #endif /* JAVA_SPEC_VERSION >= 24 */
