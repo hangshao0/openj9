@@ -264,6 +264,7 @@ enterContinuation(J9VMThread *currentThread, j9object_t continuationObject)
 	}
 
 	VM_ContinuationHelpers::swapFieldsWithContinuation(currentThread, continuation, continuationObject, started);
+	printf("> mount %p on %p ownedMonitorCount %d, enteredMonitors %p, returnstate %d\n", continuation, currentThread, (int)currentThread->ownedMonitorCount, continuation->enteredMonitors, (int)continuation->returnState);
 
 	currentThread->currentContinuation = continuation;
 	/* Reset counters which determine if the current continuation is pinned. */
@@ -328,6 +329,7 @@ yieldContinuation(J9VMThread *currentThread, BOOLEAN isFinished, UDATA returnSta
 
 	currentThread->currentContinuation = NULL;
 	VM_ContinuationHelpers::swapFieldsWithContinuation(currentThread, continuation, continuationObject);
+	printf("< unmount %p from %p, returnState %d\n", continuation, currentThread, (int)returnState);
 
 	/* We need a full fence here to preserve happens-before relationship on PPC and other weakly
 	 * ordered architectures since learning/reservation is turned on by default. Since we have the
@@ -779,11 +781,24 @@ detachMonitorInfo(J9VMThread *currentThread, j9object_t lockObject)
 		objectMonitor = J9_INFLLOCK_OBJECT_MONITOR(lock);
 	}
 
-	J9ThreadAbstractMonitor *monitor = (J9ThreadAbstractMonitor *)objectMonitor->monitor;
-	monitor->owner = (J9Thread *)J9_OBJECT_MONITOR_OWNER_DETACHED;
 	Assert_VM_notNull(currentThread->currentContinuation);
-	objectMonitor->ownerContinuation = currentThread->currentContinuation;
+	J9ThreadAbstractMonitor *monitor = (J9ThreadAbstractMonitor *)objectMonitor->monitor;
+	if (IS_J9_OBJECT_MONITOR_OWNER_DETACHED(monitor->owner)) {
+		Assert_VM_true(objectMonitor->ownerContinuation == currentThread->currentContinuation);
+	} else {
+		if (NULL == objectMonitor->ownerContinuation) {
+			objectMonitor->ownerContinuation = currentThread->currentContinuation;
+			VM_AtomicSupport::readWriteBarrier();
+			if (currentThread->osThread != monitor->owner) {
+				printf("Set J9ObjectMonitor to detached 0 os thread wrong, currentThread %p\n", currentThread);
+			}
+			printf("Set J9ObjectMonitor to detached: currentThread %p, J9ObjectMonitor %p, monitor is %p, monitor->owner %p, monitor->count %d, currentThread->osThread %p, Continuation is %p\n", currentThread, objectMonitor, monitor, monitor->owner, (int)monitor->count, currentThread->osThread, currentThread->currentContinuation);
+			monitor->owner = (J9Thread *)J9_OBJECT_MONITOR_OWNER_DETACHED;
 
+		} else {
+			Assert_VM_unreachable();
+		}
+	}
 	return objectMonitor;
 }
 
@@ -791,8 +806,18 @@ void
 updateMonitorInfo(J9VMThread *currentThread, J9ObjectMonitor *objectMonitor)
 {
 	J9ThreadAbstractMonitor *monitor = (J9ThreadAbstractMonitor *)objectMonitor->monitor;
-	monitor->owner = currentThread->osThread;
-	objectMonitor->ownerContinuation = NULL;
+
+	if (IS_J9_OBJECT_MONITOR_OWNER_DETACHED(monitor->owner)) {
+		Assert_VM_false(J9_OBJECT_MONITOR_OWNER_DETACHED == (UDATA)currentThread->osThread);
+		Assert_VM_true(objectMonitor->ownerContinuation == currentThread->currentContinuation);
+		monitor->owner = currentThread->osThread;
+		printf("Set J9ObjectMonitor to attached: currentThread %p, J9ObjectMonitor %p, monitor is %p, monitor->owner %p,  monitor->count %d, currentThread->osThread %p, Continuation is %p\n", currentThread, objectMonitor, monitor, monitor->owner, (int)monitor->count, currentThread->osThread, currentThread->currentContinuation);
+		VM_AtomicSupport::readWriteBarrier();
+		objectMonitor->ownerContinuation = NULL;
+	} else {
+		Assert_VM_true(monitor->owner == currentThread->osThread);
+		Assert_VM_true(NULL == objectMonitor->ownerContinuation);
+	}
 }
 
 UDATA
@@ -812,10 +837,17 @@ walkFrameMonitorEnterRecords(J9VMThread *currentThread, J9StackWalkState *walkSt
 	}
 #endif
 
+	if (monitorEnterRecords) {
+		if (frameID != CONVERT_FROM_RELATIVE_STACK_OFFSET(walkState->walkThread, monitorEnterRecords->arg0EA)) {
+			printf("walkFrameMonitorEnterRecords currentThread %p walkThread %p, currentThread->ownedMonitorCount %d frameID %p %p\n", currentThread, walkState->walkThread, (int)currentThread->ownedMonitorCount, frameID, CONVERT_FROM_RELATIVE_STACK_OFFSET(walkState->walkThread, monitorEnterRecords->arg0EA));
+		}
+	}
+
 	while (monitorEnterRecords &&
 			(frameID == CONVERT_FROM_RELATIVE_STACK_OFFSET(walkState->walkThread, monitorEnterRecords->arg0EA))
 		) {
 		j9object_t obj = monitorEnterRecords->object;
+		printf("in while currentThread %p walkThread %p, currentThread->ownedMonitorCount %d targetSyncObject %p, obj %p\n", currentThread, walkState->walkThread, (int)currentThread->ownedMonitorCount, targetSyncObject, obj);
 		if (obj != targetSyncObject) {
 			J9ObjectMonitor *mon = detachMonitorInfo(currentThread, obj);
 			if (NULL == mon) {
@@ -824,6 +856,8 @@ walkFrameMonitorEnterRecords(J9VMThread *currentThread, J9StackWalkState *walkSt
 			mon->next = objMonitorHead;
 			objMonitorHead = mon;
 			monitorCount++;
+		} else {
+			printf("0 currentThread %p walkThread %p, currentThread->ownedMonitorCount %d targetSyncObject %p, obj %p\n", currentThread, walkState->walkThread, (int)currentThread->ownedMonitorCount, targetSyncObject, obj);
 		}
 		monitorEnterRecords = monitorEnterRecords->next;
 	}
@@ -855,6 +889,8 @@ walkFrameMonitorEnterRecords(J9VMThread *currentThread, J9StackWalkState *walkSt
 			mon->next = objMonitorHead;
 			objMonitorHead = mon;
 			monitorCount++;
+		} else {
+			printf("1 currentThread %p walkThread %p, currentThread->ownedMonitorCount %d targetSyncObject %p, obj %p\n", currentThread, walkState->walkThread, (int)currentThread->ownedMonitorCount, targetSyncObject, syncObject);
 		}
 	}
 
@@ -1095,7 +1131,9 @@ restart:
 			/* Reset monitor entry count to 1.*/
 			monitor->count = 1;
 			/* Reset monitor state to pre-detach state so omrthread_monitor_exit behave correctly. */
+			Assert_VM_false(J9_OBJECT_MONITOR_OWNER_DETACHED == (UDATA)currentThread->osThread);
 			monitor->owner = currentThread->osThread;
+			VM_AtomicSupport::readWriteBarrier();
 			syncObjectMonitor->ownerContinuation = NULL;
 
 			/* Add Continuation struct to the monitor's waiting list. */
@@ -1128,6 +1166,9 @@ done:
 success:
 	/* Clear the blocking object on the carrier thread. */
 	J9VMTHREAD_SET_BLOCKINGENTEROBJECT(currentThread, currentThread, NULL);
+	if (NULL == continuation->enteredMonitors && currentThread->ownedMonitorCount > 0) {
+		printf("currentThread %p continuation %p has none enteredMonitor, but currentThread->ownedMonitorCount is %d\n", currentThread, continuation, (int)currentThread->ownedMonitorCount);
+	}
 
 	return result;
 }

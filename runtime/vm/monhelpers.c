@@ -226,7 +226,12 @@ restart:
 		objectMonitor = J9_INFLLOCK_OBJECT_MONITOR(lock);
 		monitor = (J9ThreadAbstractMonitor *)objectMonitor->monitor;
 		Assert_VM_notNull(monitor);
-		Assert_VM_false(IS_J9_OBJECT_MONITOR_OWNER_DETACHED(monitor->owner));
+		if (IS_J9_OBJECT_MONITOR_OWNER_DETACHED(monitor->owner)) {
+			int *foo = NULL;
+			printf("1: vmStruct is %p, os thread %p conti %p, objectMonitor is %p, monitor %p, mon->count %d, objectMonitor->ownerContinuation is %p\n", vmStruct, vmStruct->osThread, vmStruct->currentContinuation, objectMonitor, monitor, (int)monitor->count, objectMonitor->ownerContinuation);
+			//Trc_VM_objectMonitorExit_Exit_IllegalInflatedLock(vmStruct, objectMonitor->ownerContinuation, objectMonitor);
+			*foo = 1;
+		}
 
 #ifdef OMR_THR_ADAPTIVE_SPIN
 		/* For now we don't allow deflation if spinning has been disabled
@@ -238,7 +243,10 @@ restart:
 #endif /* OMR_THR_ADAPTIVE_SPIN */
 
 		if (monitor->owner != vmStruct->osThread) {
-			Trc_VM_objectMonitorExit_Exit_IllegalInflatedLock(vmStruct, monitor->owner, vmStruct->osThread);
+			//Trc_VM_objectMonitorExit_Exit_IllegalInflatedLock(vmStruct, monitor->owner, vmStruct->osThread);
+			int *foo = NULL;
+			printf("error exiting monitor thread: %p: os thread %p conti %p, monitor %p, monitor->owner %p, mon->count %d, objectMonitor->ownerContinuation %p object %p sp %p arg0EA %p\n", vmStruct, vmStruct->osThread, vmStruct->currentContinuation, monitor, monitor->owner, (int)monitor->count, objectMonitor->ownerContinuation, object, vmStruct->sp, vmStruct->arg0EA);
+			*foo = 1;
 			goto done;
 		}
 
@@ -293,7 +301,13 @@ restart:
 				}
 			}
 		}
+		if (NULL != vmStruct->currentContinuation) {
+			printf(" > exit monitor conti %p, monitor %p, monitor->owner %p, mon->count %d, objectMonitor->ownerContinuation %p, spinstate is %d, object is %p\n", vmStruct->currentContinuation, monitor, monitor->owner, (int)monitor->count, objectMonitor->ownerContinuation, (int)monitor->spinlockState, object);
+		}
 		rc = omrthread_monitor_exit((omrthread_monitor_t)monitor);
+		//if (NULL == monitor->owner || 0 == monitor->count) {
+			//printf("< rc %d, exited monitor after: %p: monitor %p, monitor->owner %p, mon->count %d, spinstate is %d sp %p arg0EA %p\n", (int)rc, vmStruct, monitor, monitor->owner, (int)monitor->count, (int)monitor->spinlockState, vmStruct->sp, vmStruct->arg0EA);
+		//}
 #if JAVA_SPEC_VERSION >= 24
 		if (J9_ARE_ANY_BITS_SET(vm->extendedRuntimeFlags3, J9_EXTENDED_RUNTIME3_YIELD_PINNED_CONTINUATION)
 		&& (0 != objectMonitor->virtualThreadWaitCount)
