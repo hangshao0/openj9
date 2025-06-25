@@ -2159,6 +2159,10 @@ javaProtectedThreadProc(J9PortLibrary* portLibrary, void * entryarg)
 	releaseVMAccess(vmThread);
 
 	/* Perform thread cleanup */
+	Assert_VM_true(currentVMThread(vm) == vmThread);
+
+
+	Assert_VM_true(0 == vmThread->ownedMonitorCount);
 
 	threadCleanup(vmThread, TRUE);
 

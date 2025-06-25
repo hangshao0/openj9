@@ -143,6 +143,9 @@ objectMonitorEnterBlocking(J9VMThread *currentThread)
 	J9JavaVM *vm = currentThread->javaVM;
 	PORT_ACCESS_FROM_JAVAVM(vm);
 	I_64 startTicks = 0;
+
+	Assert_VM_true(vm->internalVMFunctions->currentVMThread(vm) == currentThread);
+
 	if (J9_EVENT_IS_HOOKED(vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTERED)) {
 		startTicks = j9time_nano_time();
 	}
@@ -359,6 +362,8 @@ objectMonitorEnterNonBlocking(J9VMThread *currentThread, j9object_t object)
 	}
 #endif /* JAVA_SPEC_VERSION >= 16 */
 
+	Assert_VM_true(vm->internalVMFunctions->currentVMThread(vm) == currentThread);
+
 restart:
 	if (NULL == lwEA) {
 		/* out of memory */
@@ -527,6 +532,13 @@ wouldBlock:
 		result = J9_OBJECT_MONITOR_BLOCKING;
 	}
 done:
+	if (result == (UDATA)object) {
+		//J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+		//if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)) {
+		if (J9_ARE_ANY_BITS_SET(currentThread->privateFlags2, J9_PRIVATE_FLAGS2_TRACE)) {
+			Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, object, currentThread->ownedMonitorCount);
+		}
+	}
 	return result;
 }
 

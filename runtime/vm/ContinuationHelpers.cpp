@@ -266,7 +266,9 @@ enterContinuation(J9VMThread *currentThread, j9object_t continuationObject)
 
 	currentThread->currentContinuation = continuation;
 #if JAVA_SPEC_VERSION >= 24
-	Trc_VM_enterContinuation_Mount(currentThread, continuation, continuation->returnState, continuation->ownedMonitorCount, continuation->enteredMonitors);
+	if (J9_ARE_ANY_BITS_SET(currentThread->privateFlags2, J9_PRIVATE_FLAGS2_TRACE)) {
+		Trc_VM_enterContinuation_Mount(currentThread, continuation, continuation->returnState, continuation->ownedMonitorCount, continuation->enteredMonitors);
+	}
 #endif /* JAVA_SPEC_VERSION >= 24 */
 	/* Reset counters which determine if the current continuation is pinned. */
 	currentThread->continuationPinCount = 0;
@@ -329,7 +331,9 @@ yieldContinuation(J9VMThread *currentThread, BOOLEAN isFinished, UDATA returnSta
 	currentThread->currentContinuation = NULL;
 	VM_ContinuationHelpers::swapFieldsWithContinuation(currentThread, continuation, continuationObject);
 #if JAVA_SPEC_VERSION >= 24
-	Trc_VM_yieldContinuation_Unmount(currentThread, continuation, continuation->returnState, continuation->ownedMonitorCount, continuation->enteredMonitors);
+	if (J9_ARE_ANY_BITS_SET(currentThread->privateFlags2, J9_PRIVATE_FLAGS2_TRACE)) {
+		Trc_VM_yieldContinuation_Unmount(currentThread, continuation, continuation->returnState, continuation->ownedMonitorCount, continuation->enteredMonitors);
+	}
 #endif /* JAVA_SPEC_VERSION >= 24 */
 
 	/* We need a full fence here to preserve happens-before relationship on PPC and other weakly
