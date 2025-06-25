@@ -849,7 +849,7 @@ reportTraceEvent(J9JavaVM *vm, J9VMThread *self, UDATA eventFlags)
 		 * Use UTE cached name (don't de-allocate it!)
 		 */
 		name = (char *)(*tempThr)->name;
-		Trc_trcengine_reportThreadEnd(self, self, name, self->osThread);
+		Trc_trcengine_reportThreadEnd(self, self, name, self->osThread, self->ownedMonitorCount);
 
 		if (OMR_ERROR_NONE != threadStop(tempThr)) {
 			dbg_err_printf(1, PORTLIB, "<UT> UTE thread stop failed for thread %p\n", self);

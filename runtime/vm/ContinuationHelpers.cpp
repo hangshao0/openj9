@@ -33,9 +33,83 @@
 #include "ContinuationHelpers.hpp"
 #include "HeapIteratorAPI.h"
 #include "OutOfLineINL.hpp"
+/*
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+*/
+#include <sys/stat.h>
 
+#define MAX_BYTES (64 * 1024)
 
 extern "C" {
+
+
+void log_to_file_with_limit(const char *format, ...) {
+    // Append log entry
+	const char* filename = "/CCM/test/aqa-tests/TKG/output_17531288306576/jdk_custom_0/debug_tmp.txt";
+    FILE *fp = fopen(filename, "a");
+    if (!fp) {
+        perror("Failed to open log file");
+        return;
+    }
+
+    // Write formatted content
+    va_list args;
+    va_start(args, format);
+    vfprintf(fp, format, args);
+    va_end(args);
+
+    fclose(fp);
+
+    // Check file size
+    struct stat st;
+    if (stat(filename, &st) != 0 || st.st_size <= MAX_BYTES) {
+        return;  // Within size limit
+    }
+
+    // Open original and temporary file
+    FILE *src = fopen(filename, "r");
+    FILE *tmp = tmpfile();  // Anonymous temp file
+    if (!src || !tmp) {
+        perror("Failed to trim log file");
+        if (src) fclose(src);
+        if (tmp) fclose(tmp);
+        return;
+    }
+
+    // Seek to last max_bytes from end
+    fseek(src, -((long)MAX_BYTES), SEEK_END);
+
+    // Align to next full line
+    int ch;
+    while ((ch = fgetc(src)) != '\n' && ch != EOF);  // Skip partial line
+
+    // Copy remainder to temp file
+    char buffer[4096];
+    size_t bytes;
+    while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {
+        fwrite(buffer, 1, bytes, tmp);
+    }
+
+    fclose(src);
+
+    // Overwrite original file
+    fp = fopen(filename, "w");
+    if (!fp) {
+        perror("Failed to reopen original file for writing");
+        fclose(tmp);
+        return;
+    }
+
+    rewind(tmp);
+    while ((bytes = fread(buffer, 1, sizeof(buffer), tmp)) > 0) {
+        fwrite(buffer, 1, bytes, fp);
+    }
+
+    fclose(fp);
+    fclose(tmp);
+}
 
 BOOLEAN
 createContinuation(J9VMThread *currentThread, j9object_t continuationObject)
@@ -266,7 +340,7 @@ enterContinuation(J9VMThread *currentThread, j9object_t continuationObject)
 
 	currentThread->currentContinuation = continuation;
 #if JAVA_SPEC_VERSION >= 24
-	Trc_VM_enterContinuation_Mount(currentThread, continuation, continuation->returnState, currentThread->ownedMonitorCount, continuation->enteredMonitors);
+	Trc_VM_enterContinuation_Mount(currentThread, continuation, continuation->returnState, continuation->ownedMonitorCount, continuation->enteredMonitors, NULL);
 #endif /* JAVA_SPEC_VERSION >= 24 */
 	/* Reset counters which determine if the current continuation is pinned. */
 	currentThread->continuationPinCount = 0;
@@ -326,10 +400,12 @@ yieldContinuation(J9VMThread *currentThread, BOOLEAN isFinished, UDATA returnSta
 		VM_ContinuationHelpers::setFinished(continuationStatePtr);
 	}
 
+	Trc_VM_yieldContinuation_Unmount(currentThread, continuation, continuation->returnState, continuation->ownedMonitorCount, continuation->enteredMonitors, J9VMJDKINTERNALVMCONTINUATION_BLOCKER(currentThread, continuationObject));
+
 	currentThread->currentContinuation = NULL;
 	VM_ContinuationHelpers::swapFieldsWithContinuation(currentThread, continuation, continuationObject);
 #if JAVA_SPEC_VERSION >= 24
-	Trc_VM_yieldContinuation_Unmount(currentThread, continuation, returnState, continuation->ownedMonitorCount, continuation->enteredMonitors);
+
 #endif /* JAVA_SPEC_VERSION >= 24 */
 
 	/* We need a full fence here to preserve happens-before relationship on PPC and other weakly
@@ -944,11 +1020,27 @@ preparePinnedVirtualThreadForUnmount(J9VMThread *currentThread, j9object_t syncO
 	UDATA monitorCount = 0;
 	J9JavaVM *vm = currentThread->javaVM;
 	J9VMContinuation *continuation = currentThread->currentContinuation;
-
+	bool print = false;
 	if (NULL != syncObj) {
 		j9objectmonitor_t volatile *lwEA = VM_ObjectMonitor::inlineGetLockAddress(currentThread, syncObj);
+		{
+			J9Class * objClass = J9OBJECT_CLAZZ(currentThread, syncObj);
+			J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+			if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)
+			) {
+				j9object_t continuationObj = J9VMJAVALANGVIRTUALTHREAD_CONT(currentThread, currentThread->threadObject);
+				j9object_t blocker = J9VMJDKINTERNALVMCONTINUATION_BLOCKER(currentThread, continuationObj);
+				Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 100, syncObj, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+				Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 101, blocker, currentThread->ownedMonitorCount, continuation);
+				log_to_file_with_limit("blocker is %p for continuation %p\n", blocker, continuation);
+				print = true;
+			}
+		}
+
 		j9objectmonitor_t lock = J9_LOAD_LOCKWORD(currentThread, lwEA);
 		omrthread_monitor_t monitor = NULL;
+
+
 
 		if (J9_LOCK_IS_INFLATED(lock)) {
 			syncObjectMonitor = J9_INFLLOCK_OBJECT_MONITOR(lock);
@@ -974,8 +1066,14 @@ restart:
 						syncObj = J9VMTHREAD_BLOCKINGENTEROBJECT(currentThread, currentThread);
 						lwEA = VM_ObjectMonitor::inlineGetLockAddress(currentThread, syncObj);
 						lock = J9_LOAD_LOCKWORD(currentThread, lwEA);
+						if (print) {
+							Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 40, syncObj, currentThread->ownedMonitorCount, lock);
+						}
 						if (VM_ObjectMonitor::inlineFastInitAndEnterMonitor(currentThread, lwEA)) {
 							result = (UDATA)syncObj;
+							if (print) {
+								Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 41, syncObj, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+							}
 							goto success;
 						}
 					}
@@ -1028,22 +1126,39 @@ restart:
 						Assert_VM_true(OBJECT_HEADER_LOCK_FLC != newLockword);
 						j9objectmonitor_t const oldValue = lock;
 						VM_AtomicSupport::writeBarrier();
+						J9VMThread *t = (J9VMThread *)J9_FLATLOCK_OWNER(lock);
+						if (print) {
+							Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 10, syncObj, t == NULL ? 255 : t->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+						}
 						lock = VM_ObjectMonitor::compareAndSwapLockword(currentThread, lwEA, lock, (j9objectmonitor_t)newLockword);
 						if (lock == oldValue) {
+							if (print) {
+								Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 11, syncObj, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+								Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 12, newLockword, currentThread->ownedMonitorCount, J9_FLATLOCK_OWNER(lock));
+							}
 							/* CAS succeeded, we can proceed with using the inflated monitor. */
 							VM_ObjectMonitor::incrementCancelCounter(J9OBJECT_CLAZZ(currentThread, syncObj));
 							/* Either the lock is acquired or FLC bit set, safe to release the inflated monitor. */
 							omrthread_monitor_exit(monitor);
+							if (print) {
+								Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 13, syncObj, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+							}
 
-							if (J9_FLATLOCK_OWNER(lock) == currentThread) {
+							if (J9_FLATLOCK_OWNER(newLockword) == currentThread) {
 								/* Lock is acquired. */
 								currentThread->ownedMonitorCount += 1;
 								result = (UDATA)syncObj;
+								if (print) {
+									Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 14, syncObj, currentThread->ownedMonitorCount, J9_FLATLOCK_OWNER(lock));
+								}
 								goto success;
 							}
 							break;
 						}
 						/* CAS failed, another thread must have updated the lockword, retry the check. */
+						if (print) {
+							Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 15, syncObj, t == NULL ? 255 : t->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+						}
 					}
 				} else {
 					/* Inflated monitor owned by another thread, so the lockword update will be completed by them. */
@@ -1054,6 +1169,10 @@ restart:
 					}
 				}
 			}
+		}
+		if (J9_ARE_NO_BITS_SET(J9_LOAD_LOCKWORD(currentThread, lwEA), OBJECT_HEADER_LOCK_FLC | OBJECT_HEADER_LOCK_INFLATED)) {
+			Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 98, syncObj, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+			Assert_VM_true(0);
 		}
 	}
 
@@ -1112,7 +1231,33 @@ restart:
 		j9object_t continuationObj = J9VMJAVALANGVIRTUALTHREAD_CONT(currentThread, currentThread->threadObject);
 		omrthread_monitor_t monitor = syncObjectMonitor->monitor;
 		J9VMJDKINTERNALVMCONTINUATION_SET_BLOCKER(currentThread, continuationObj, syncObj);
+		j9objectmonitor_t volatile *lwEA = VM_ObjectMonitor::inlineGetLockAddress(currentThread, syncObj);
+
+		bool print = false;
+		{
+			J9Class * objClass = J9OBJECT_CLAZZ(currentThread, syncObj);
+			J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+			if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)
+			) {
+				print = true;
+			}
+		}
+		if (print || true) {
+			PORT_ACCESS_FROM_VMC(currentThread);
+			Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 70, syncObj, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+			fprintf(stderr, "%lld: Thread %p set syncObj %p as blocker on continuation %p, lockword is %p\n", (long long)j9time_current_time_millis(),
+					currentThread,  syncObj, continuation, (void *)J9_LOAD_LOCKWORD(currentThread, lwEA));
+			Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 71, syncObj, currentThread->ownedMonitorCount, continuation);
+			log_to_file_with_limit("%lld: Thread %p set syncObj %p as blocker on continuation %p, lockword is %p\n", (long long)j9time_current_time_millis(),
+					currentThread,  syncObj, continuation, (void *)J9_LOAD_LOCKWORD(currentThread, lwEA));
+
+		}
 		continuation->objectWaitMonitor = syncObjectMonitor;
+		if (J9_ARE_NO_BITS_SET(J9_LOAD_LOCKWORD(currentThread, lwEA), OBJECT_HEADER_LOCK_FLC | OBJECT_HEADER_LOCK_INFLATED)) {
+			Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 99, syncObj, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+			fprintf(stderr, "\n !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!---------------------------- BITS NOT SET --------------!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+			*(int*)(0) = 1;
+		}
 
 		if (isObjectWait) {
 			/* Record wait monitor state. */
@@ -1154,6 +1299,10 @@ done:
 success:
 	/* Clear the blocking object on the carrier thread. */
 	J9VMTHREAD_SET_BLOCKINGENTEROBJECT(currentThread, currentThread, NULL);
+	if (result == (UDATA)syncObj) {
+		j9object_t continuationObj = J9VMJAVALANGVIRTUALTHREAD_CONT(currentThread, currentThread->threadObject);
+		J9VMJDKINTERNALVMCONTINUATION_SET_BLOCKER(currentThread, continuationObj, NULL);
+	}
 
 	return result;
 }
@@ -1234,7 +1383,7 @@ restart:
 				) {
 					hasPlatformThreadWaiting = true;
 				}
-
+				Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 90, current, state, syncObjectMonitor);
 				/* Skip vthreads that are still in transition. */
 				switch (state) {
 				case JAVA_LANG_VIRTUALTHREAD_BLOCKING:
