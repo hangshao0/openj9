@@ -30,7 +30,7 @@ TraceEvent=Trc_trcengine_reportTraceEvent_Event1 Overhead=1 Level=1 Template="Th
 TraceEvent=Trc_trcengine_reportTraceEvent_Event2 Overhead=1 Level=1 Template="Thread stopped VMthread = %p, name = %s"
 TraceEvent=Trc_trcengine_checkMethod Overhead=1 Level=1 Template="Check for method match"
 TraceEvent=Trc_trcengine_reportThreadStart Overhead=1 Level=1 Template="Thread started VMthread = %p, name = %s, nativeID = %p"
-TraceEvent=Trc_trcengine_reportThreadEnd Overhead=1 Level=1 Template="Thread ended VMthread = %p, name = %s, nativeID = %p"
+TraceEvent=Trc_trcengine_reportThreadEnd Overhead=1 Level=1 Template="Thread ended VMthread = %p, name = %s, nativeID = %p, ownedMonitorCount = %zu"
 
 TraceEvent=Trc_trcengine_criu_enableMethodTraceHooks_failed Overhead=1 Level=1 Template="criuRestoreInitializeTrace(): enableMethodTraceHooks() failed"
 TraceEvent=Trc_trcengine_criu_startTraceWorkerThread_failed Overhead=1 Level=1 Template="criuRestoreInitializeTrace(): startTraceWorkerThread() failed"

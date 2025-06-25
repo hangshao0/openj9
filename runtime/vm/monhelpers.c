@@ -36,11 +36,12 @@ objectMonitorExit(J9VMThread* vmStruct, j9object_t object)
 	IDATA rc = J9THREAD_ILLEGAL_MONITOR_STATE;
 	j9objectmonitor_t *lockEA = NULL;
 	j9objectmonitor_t lock = 0;
+	J9JavaVM *vm = vmStruct->javaVM;
 
 	Assert_VM_true(vmStruct != NULL);
 	Assert_VM_true(J9_ARE_NO_BITS_SET((UDATA)vmStruct, OBJECT_HEADER_LOCK_BITS_MASK));
 
-	Trc_VM_objectMonitorExit_Entry(vmStruct, object);
+	Assert_VM_true(vm->internalVMFunctions->currentVMThread(vm) == vmStruct);
 
 	if (!LN_HAS_LOCKWORD(vmStruct, object)) {
 		J9ObjectMonitor *objectMonitor = NULL;
@@ -94,7 +95,6 @@ restart:
 				J9_STORE_LOCKWORD(vmStruct, lockEA, 0);
 			} else {
 				omrthread_monitor_t monitor = objectMonitor->monitor;
-				J9JavaVM *vm = vmStruct->javaVM;
 
 				TRIGGER_J9HOOK_VM_MONITOR_CONTENDED_EXIT(vm->hookInterface, vmStruct, monitor);
 
@@ -219,7 +219,6 @@ restart:
 		J9ObjectMonitor *objectMonitor = NULL;
 		J9ThreadAbstractMonitor *monitor = NULL;
 		IDATA deflate = 1;
-		J9JavaVM *vm = vmStruct->javaVM;
 
 		objectMonitor = J9_INFLLOCK_OBJECT_MONITOR(lock);
 		monitor = (J9ThreadAbstractMonitor *)objectMonitor->monitor;
@@ -316,6 +315,11 @@ restart:
 done:
 #if JAVA_SPEC_VERSION >= 19
 	if (0 == rc) {
+		J9Class * objClass = J9OBJECT_CLAZZ(vmStruct, object);
+		J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+		if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)) {
+			Trc_VM_objectMonitorExit_Entry(vmStruct, object, vmStruct->ownedMonitorCount);
+		}
 		vmStruct->ownedMonitorCount -= 1;
 	}
 #endif /* JAVA_SPEC_VERSION >= 19 */

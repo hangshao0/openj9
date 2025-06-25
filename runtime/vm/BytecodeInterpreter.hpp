@@ -1215,6 +1215,12 @@ obj:
 					VMStructHasBeenUpdated(REGISTER_ARGS);
 				}
 			}
+		} else {
+			J9Class * objClass = J9OBJECT_CLAZZ(vmStruct, obj);
+			J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+			if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)) {
+				Trc_VM_MonitorEnterFastNonBlocking_Entered(_currentThread, obj);
+			}
 		}
 #if JAVA_SPEC_VERSION >= 24
 		if (rc == (UDATA)obj) {

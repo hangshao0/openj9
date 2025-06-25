@@ -248,6 +248,12 @@ done:
 	{
 		bool locked = false;
 		j9objectmonitor_t mine = (j9objectmonitor_t)(UDATA)currentThread;
+		J9JavaVM *vm = currentThread->javaVM;
+
+		if (vm->internalVMFunctions->currentVMThread(vm) != currentThread) {
+			int *foo = NULL;
+			*foo = 1;
+		}
 
 		/*
 		 * For the Reserved and Learning states, the RC field starts at 1 when an unlocked objected gets locked.
@@ -303,6 +309,11 @@ done:
 	inlineFastObjectMonitorExit(J9VMThread *currentThread, j9object_t object)
 	{
 		bool unlocked = false;
+		J9JavaVM *vm = currentThread->javaVM;
+		if (vm->internalVMFunctions->currentVMThread(vm) != currentThread) {
+			int *foo = NULL;
+			*foo = 1;
+		}
 		if (LN_HAS_LOCKWORD(currentThread, object)) {
 			j9objectmonitor_t *lockEA = J9OBJECT_MONITOR_EA(currentThread, object);
 
