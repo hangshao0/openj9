@@ -143,6 +143,20 @@ objectMonitorEnterBlocking(J9VMThread *currentThread)
 	J9JavaVM *vm = currentThread->javaVM;
 	PORT_ACCESS_FROM_JAVAVM(vm);
 	I_64 startTicks = 0;
+	bool print = false;
+
+	{
+		J9Class * objClass = J9OBJECT_CLAZZ(currentThread, object);
+		J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+		if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)
+		) {
+			print = true;
+		}
+
+	}
+
+	Assert_VM_true(vm->internalVMFunctions->currentVMThread(vm) == currentThread);
+
 	if (J9_EVENT_IS_HOOKED(vm->hookInterface, J9HOOK_VM_MONITOR_CONTENDED_ENTERED)) {
 		startTicks = j9time_nano_time();
 	}
@@ -159,6 +173,9 @@ objectMonitorEnterBlocking(J9VMThread *currentThread)
 			object = J9VMTHREAD_BLOCKINGENTEROBJECT(currentThread, currentThread);
 			lwEA = VM_ObjectMonitor::inlineGetLockAddress(currentThread, object);
 			if (VM_ObjectMonitor::inlineFastInitAndEnterMonitor(currentThread, lwEA)) {
+				if (print) {
+					Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 51, object, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+				}
 				goto success;
 			}
 		}
@@ -266,9 +283,19 @@ releasedAccess:
 				while (0 != lockInLoop) {
 					j9objectmonitor_t const flcBitSet = lockInLoop | OBJECT_HEADER_LOCK_FLC;
 					j9objectmonitor_t const oldValue = lockInLoop;
+					if (print) {
+						Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 20, object, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+					}
 					lockInLoop = VM_ObjectMonitor::compareAndSwapLockword(currentThread, lwEA, lockInLoop, flcBitSet);
 					if (oldValue == lockInLoop) {
+						if (print) {
+							Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 21, object, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+						}
 						break;
+					} else {
+						if (print) {
+							Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 22, object, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+						}
 					}
 				}
 			}
@@ -284,6 +311,9 @@ releasedAccess:
 				j9objectmonitor_t lock = J9_LOAD_LOCKWORD(currentThread, lwEA);
 				lock |= OBJECT_HEADER_LOCK_FLC;
 				J9_STORE_LOCKWORD(currentThread, lwEA, lock);
+				if (print) {
+					Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 31, object, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+				}
 				goto done;
 			}
 			internalReleaseVMAccessSetStatus(currentThread, J9_PUBLIC_FLAGS_THREAD_BLOCKED);
@@ -339,6 +369,16 @@ objectMonitorEnterNonBlocking(J9VMThread *currentThread, j9object_t object)
 	BOOLEAN retry = FALSE;
 #endif /* defined(J9VM_OPT_CRIU_SUPPORT) */
 
+	bool print = false;
+
+	{
+		J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+		if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)
+		) {
+			print = true;
+		}
+	}
+
 #if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
 	if (J9_IS_J9CLASS_VALUETYPE(objClass)) {
 		result = J9_OBJECT_MONITOR_VALUE_TYPE_IMSE;
@@ -359,6 +399,8 @@ objectMonitorEnterNonBlocking(J9VMThread *currentThread, j9object_t object)
 	}
 #endif /* JAVA_SPEC_VERSION >= 16 */
 
+	Assert_VM_true(vm->internalVMFunctions->currentVMThread(vm) == currentThread);
+
 restart:
 	if (NULL == lwEA) {
 		/* out of memory */
@@ -367,6 +409,10 @@ restart:
 	} else {
 		/* check for a recursive flat lock */
 		j9objectmonitor_t const lock = J9_LOAD_LOCKWORD(currentThread, lwEA);
+
+		if (print) {
+			Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 0, object, currentThread->ownedMonitorCount, lock);
+		}
 
 		/* Global Lock Reservation is currently only supported on Power. Learning bit should be clear on other platforms if Inflated bit is not set. */
 #if !(defined(AIXPPC) || defined(LINUXPPC))
@@ -527,6 +573,17 @@ wouldBlock:
 		result = J9_OBJECT_MONITOR_BLOCKING;
 	}
 done:
+	if (result == (UDATA)object) {
+		//J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+		//if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)) {
+		if (print) {
+			Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 1, object, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+		}
+	} else {
+		if (print) {
+			Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 2, object, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+		}
+	}
 	return result;
 }
 
@@ -581,6 +638,18 @@ spinOnFlatLock(J9VMThread *currentThread, j9objectmonitor_t volatile *lwEA, j9ob
 			/* try to take the flat monitor by swapping the currentThread in */
 			if (VM_ObjectMonitor::inlineFastInitAndEnterMonitor(currentThread, lwEA, true)) {
 				/* compare and swap succeeded - barrier already performed */
+				bool print = false;
+				{
+					J9Class * objClass = J9OBJECT_CLAZZ(currentThread, object);
+					J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+					if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)
+					) {
+						print = true;
+					}
+				}
+				if (print) {
+					Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 61, object, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+				}
 				rc = true;
 				goto done;
 			}

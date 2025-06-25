@@ -266,7 +266,9 @@ enterContinuation(J9VMThread *currentThread, j9object_t continuationObject)
 
 	currentThread->currentContinuation = continuation;
 #if JAVA_SPEC_VERSION >= 24
-	Trc_VM_enterContinuation_Mount(currentThread, continuation, continuation->returnState, currentThread->ownedMonitorCount, continuation->enteredMonitors);
+	if (J9_ARE_ANY_BITS_SET(currentThread->privateFlags2, J9_PRIVATE_FLAGS2_TRACE)) {
+		Trc_VM_enterContinuation_Mount(currentThread, continuation, continuation->returnState, continuation->ownedMonitorCount, continuation->enteredMonitors);
+	}
 #endif /* JAVA_SPEC_VERSION >= 24 */
 	/* Reset counters which determine if the current continuation is pinned. */
 	currentThread->continuationPinCount = 0;
@@ -329,7 +331,9 @@ yieldContinuation(J9VMThread *currentThread, BOOLEAN isFinished, UDATA returnSta
 	currentThread->currentContinuation = NULL;
 	VM_ContinuationHelpers::swapFieldsWithContinuation(currentThread, continuation, continuationObject);
 #if JAVA_SPEC_VERSION >= 24
-	Trc_VM_yieldContinuation_Unmount(currentThread, continuation, returnState, continuation->ownedMonitorCount, continuation->enteredMonitors);
+	if (J9_ARE_ANY_BITS_SET(currentThread->privateFlags2, J9_PRIVATE_FLAGS2_TRACE)) {
+		Trc_VM_yieldContinuation_Unmount(currentThread, continuation, continuation->returnState, continuation->ownedMonitorCount, continuation->enteredMonitors);
+	}
 #endif /* JAVA_SPEC_VERSION >= 24 */
 
 	/* We need a full fence here to preserve happens-before relationship on PPC and other weakly
@@ -950,6 +954,17 @@ preparePinnedVirtualThreadForUnmount(J9VMThread *currentThread, j9object_t syncO
 		j9objectmonitor_t lock = J9_LOAD_LOCKWORD(currentThread, lwEA);
 		omrthread_monitor_t monitor = NULL;
 
+		bool print = false;
+		{
+			J9Class * objClass = J9OBJECT_CLAZZ(currentThread, syncObj);
+			J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+			if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)
+			) {
+				print = true;
+			}
+
+		}
+
 		if (J9_LOCK_IS_INFLATED(lock)) {
 			syncObjectMonitor = J9_INFLLOCK_OBJECT_MONITOR(lock);
 		} else {
@@ -975,6 +990,10 @@ restart:
 						lwEA = VM_ObjectMonitor::inlineGetLockAddress(currentThread, syncObj);
 						lock = J9_LOAD_LOCKWORD(currentThread, lwEA);
 						if (VM_ObjectMonitor::inlineFastInitAndEnterMonitor(currentThread, lwEA)) {
+							if (print) {
+								Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 40, syncObj, currentThread->ownedMonitorCount, lock);
+								Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 41, syncObj, currentThread->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+							}
 							result = (UDATA)syncObj;
 							goto success;
 						}
@@ -1028,8 +1047,15 @@ restart:
 						Assert_VM_true(OBJECT_HEADER_LOCK_FLC != newLockword);
 						j9objectmonitor_t const oldValue = lock;
 						VM_AtomicSupport::writeBarrier();
+						J9VMThread *t = (J9VMThread *)J9_FLATLOCK_OWNER(lock);
+						if (print) {
+							Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 10, syncObj, t == NULL ? 255 : t->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+						}
 						lock = VM_ObjectMonitor::compareAndSwapLockword(currentThread, lwEA, lock, (j9objectmonitor_t)newLockword);
 						if (lock == oldValue) {
+							if (print) {
+								Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 11, syncObj, t == NULL ? 255 : t->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+							}
 							/* CAS succeeded, we can proceed with using the inflated monitor. */
 							VM_ObjectMonitor::incrementCancelCounter(J9OBJECT_CLAZZ(currentThread, syncObj));
 							/* Either the lock is acquired or FLC bit set, safe to release the inflated monitor. */
@@ -1044,6 +1070,9 @@ restart:
 							break;
 						}
 						/* CAS failed, another thread must have updated the lockword, retry the check. */
+						if (print) {
+							Trc_VM_MonitorEnterNonBlocking_Entered(currentThread, 12, syncObj, t == NULL ? 255 : t->ownedMonitorCount, J9_LOAD_LOCKWORD(currentThread, lwEA));
+						}
 					}
 				} else {
 					/* Inflated monitor owned by another thread, so the lockword update will be completed by them. */

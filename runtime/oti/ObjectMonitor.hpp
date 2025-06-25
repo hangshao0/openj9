@@ -248,6 +248,12 @@ done:
 	{
 		bool locked = false;
 		j9objectmonitor_t mine = (j9objectmonitor_t)(UDATA)currentThread;
+		J9JavaVM *vm = currentThread->javaVM;
+
+		if (vm->internalVMFunctions->currentVMThread(vm) != currentThread) {
+			int *foo = NULL;
+			*foo = 1;
+		}
 
 		/*
 		 * For the Reserved and Learning states, the RC field starts at 1 when an unlocked objected gets locked.
@@ -287,6 +293,15 @@ done:
 #endif /* JAVA_SPEC_VERSION >= 16 */
 		) {
 			locked = inlineFastInitAndEnterMonitor(currentThread, J9OBJECT_MONITOR_EA(currentThread, object));
+			if (locked) {
+				J9Class * objClass = J9OBJECT_CLAZZ(currentThread, object);
+				J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+				if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)
+				) {
+					PORT_ACCESS_FROM_VMC(currentThread);
+					printf("%lld: Thread %p fast entered obj monitor %p, ownedMonitorCount is %d\n", (long long)j9time_current_time_millis(), currentThread,  object, (int)currentThread->ownedMonitorCount);
+				}
+			}
 		}
 		return locked;
 	}
@@ -303,15 +318,35 @@ done:
 	inlineFastObjectMonitorExit(J9VMThread *currentThread, j9object_t object)
 	{
 		bool unlocked = false;
+		J9JavaVM *vm = currentThread->javaVM;
+		if (vm->internalVMFunctions->currentVMThread(vm) != currentThread) {
+			int *foo = NULL;
+			*foo = 1;
+		}
 		if (LN_HAS_LOCKWORD(currentThread, object)) {
 			j9objectmonitor_t *lockEA = J9OBJECT_MONITOR_EA(currentThread, object);
 
 			if ((j9objectmonitor_t)(UDATA)currentThread == J9_LOAD_LOCKWORD(currentThread, lockEA)) {
 				VM_AtomicSupport::writeBarrier();
 				J9_STORE_LOCKWORD(currentThread, lockEA, 0);
-				unlocked = true;
+				//j9objectmonitor_t oldVal = compareAndSwapLockword(currentThread, lockEA, (j9objectmonitor_t)(UDATA)currentThread, (j9objectmonitor_t)0);
+				//if (oldVal == (j9objectmonitor_t)(UDATA)currentThread) {
+					unlocked = true;
+				//}
 #if JAVA_SPEC_VERSION >= 19
-				currentThread->ownedMonitorCount -= 1;
+				if (unlocked) {
+					currentThread->ownedMonitorCount -= 1;
+					{
+						J9Class * objClass = J9OBJECT_CLAZZ(currentThread, object);
+						J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+						if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)
+						) {
+							PORT_ACCESS_FROM_VMC(currentThread);
+							printf("%lld: Thread %p exit obj monitor %p, ownedMonitorCount is %d\n", (long long)j9time_current_time_millis(), currentThread,  object, (int)currentThread->ownedMonitorCount);
+						}
+					}
+				}
+
 #endif /* JAVA_SPEC_VERSION >= 19 */
 			}
 		}

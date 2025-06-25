@@ -36,11 +36,15 @@ objectMonitorExit(J9VMThread* vmStruct, j9object_t object)
 	IDATA rc = J9THREAD_ILLEGAL_MONITOR_STATE;
 	j9objectmonitor_t *lockEA = NULL;
 	j9objectmonitor_t lock = 0;
+	J9JavaVM *vm = vmStruct->javaVM;
+	J9Class * objClass = J9OBJECT_CLAZZ(vmStruct, object);
+	J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+	BOOLEAN trace = J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43);
 
 	Assert_VM_true(vmStruct != NULL);
 	Assert_VM_true(J9_ARE_NO_BITS_SET((UDATA)vmStruct, OBJECT_HEADER_LOCK_BITS_MASK));
 
-	Trc_VM_objectMonitorExit_Entry(vmStruct, object);
+	Assert_VM_true(vm->internalVMFunctions->currentVMThread(vm) == vmStruct);
 
 	if (!LN_HAS_LOCKWORD(vmStruct, object)) {
 		J9ObjectMonitor *objectMonitor = NULL;
@@ -57,7 +61,9 @@ objectMonitorExit(J9VMThread* vmStruct, j9object_t object)
 	}
 restart:
 	lock = J9_LOAD_LOCKWORD(vmStruct, lockEA);
-
+	if (trace) {
+		Trc_VM_objectMonitorExit_SetNew(vmStruct, 9, object, lock);
+	}
 	if (J9_FLATLOCK_OWNER(lock) == vmStruct) {
 		/* The current thread owns the monitor, and it's a flat lock. */
 		UDATA count = (UDATA)lock & OBJECT_HEADER_LOCK_BITS_MASK;
@@ -92,9 +98,11 @@ restart:
 				/* Out of memory - impossible? */
 				monitorExitWriteBarrier();
 				J9_STORE_LOCKWORD(vmStruct, lockEA, 0);
+				if (trace) {
+					Trc_VM_objectMonitorExit_SetNew(vmStruct, 0, object, 0);
+				}
 			} else {
 				omrthread_monitor_t monitor = objectMonitor->monitor;
-				J9JavaVM *vm = vmStruct->javaVM;
 
 				TRIGGER_J9HOOK_VM_MONITOR_CONTENDED_EXIT(vm->hookInterface, vmStruct, monitor);
 
@@ -104,6 +112,9 @@ restart:
 				&& (0 != objectMonitor->virtualThreadWaitCount)
 				) {
 					J9VM_SEND_VIRTUAL_UNBLOCKER_THREAD_SIGNAL(vm);
+				}
+				if (trace) {
+					Trc_VM_objectMonitorExit_SetNew(vmStruct, 1, object, J9_LOAD_LOCKWORD(vmStruct, lockEA));
 				}
 			}
 		} else {
@@ -120,6 +131,9 @@ restart:
 				/* Lock is in Learning state but unowned.
 				 * (if it were owned it would have been caught by the first Learning state check)
 				 */
+				if (trace) {
+					Trc_VM_objectMonitorExit_SetNew(vmStruct, 2, object, 0);
+				}
 				goto done;
 			} else if (count >= OBJECT_HEADER_LOCK_FIRST_RECURSION_BIT) {
 				/* Just decrement the flatlock recursion count. */
@@ -130,6 +144,9 @@ restart:
 				 * (if it were owned the count would be >= OBJECT_HEADER_LOCK_FIRST_RECURSION_BIT)
 				 */
 				Trc_VM_objectMonitorExit_Exit_ReservedButUnownedFlatLock(vmStruct, lock, object);
+				if (trace) {
+					Trc_VM_objectMonitorExit_SetNew(vmStruct, 3, object, 0);
+				}
 				goto done;
 #endif /* J9VM_THR_LOCK_RESERVATION */
 			}
@@ -144,6 +161,10 @@ restart:
 			if (!casSuccess) {
 				/* Another thread has attempted to get the lock and may have update the FLC flag. */
 				goto restart;
+			} else {
+				if (trace) {
+					Trc_VM_objectMonitorExit_SetNew(vmStruct, 4, object, newLock);
+				}
 			}
 		}
 #else /* JAVA_SPEC_VERSION >= 24 */
@@ -219,7 +240,6 @@ restart:
 		J9ObjectMonitor *objectMonitor = NULL;
 		J9ThreadAbstractMonitor *monitor = NULL;
 		IDATA deflate = 1;
-		J9JavaVM *vm = vmStruct->javaVM;
 
 		objectMonitor = J9_INFLLOCK_OBJECT_MONITOR(lock);
 		monitor = (J9ThreadAbstractMonitor *)objectMonitor->monitor;
@@ -292,7 +312,9 @@ restart:
 			}
 		}
 #if JAVA_SPEC_VERSION >= 24
-		Trc_VM_objectMonitorExit_OMRThread_Monitor_Exit(vmStruct, monitor, monitor->count);
+		if (trace) {
+			Trc_VM_objectMonitorExit_OMRThread_Monitor_Exit(vmStruct, monitor, monitor->count);
+		}
 #endif /*  JAVA_SPEC_VERSION >= 24 */
 		rc = omrthread_monitor_exit((omrthread_monitor_t)monitor);
 #if JAVA_SPEC_VERSION >= 24
@@ -317,6 +339,20 @@ done:
 #if JAVA_SPEC_VERSION >= 19
 	if (0 == rc) {
 		vmStruct->ownedMonitorCount -= 1;
+		//J9Class * objClass = J9OBJECT_CLAZZ(vmStruct, object);
+		//J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+		//if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)) {
+		if (trace) {
+			Trc_VM_objectMonitorExit_Entry(vmStruct, object, vmStruct->ownedMonitorCount, J9_LOAD_LOCKWORD(vmStruct, lockEA));
+		}
+		//}
+	} else {
+		//J9Class * objClass = J9OBJECT_CLAZZ(vmStruct, object);
+		//J9UTF8* currentClassName = J9ROMCLASS_CLASSNAME(objClass->romClass);
+		//if (J9UTF8_DATA_EQUALS(J9UTF8_DATA(currentClassName), J9UTF8_LENGTH(currentClassName), "java/util/concurrent/ConcurrentHashMap$Node", 43)) {
+		if (trace) {
+			Trc_VM_objectMonitorExit_Entry(vmStruct, object, 255, lock);
+		}
 	}
 #endif /* JAVA_SPEC_VERSION >= 19 */
 	return rc;

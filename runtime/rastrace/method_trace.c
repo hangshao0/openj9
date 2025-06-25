@@ -213,6 +213,12 @@ traceMethodEnter(J9VMThread *thr, J9Method *method, void *receiverAddress, UDATA
 			}
 		}
 	}
+	thr->privateFlags2 |= J9_PRIVATE_FLAGS2_TRACE;
+	{
+		J9JavaVM *vm = thr->javaVM;
+		J9VMThread* currentThread = vm->internalVMFunctions->currentVMThread(vm);
+		Trc_MethodownedMoniorCount(thr, currentThread, thr->ownedMonitorCount, currentThread->ownedMonitorCount);
+	}
 }
 
 /**************************************************************************
@@ -231,6 +237,12 @@ traceMethodExit(J9VMThread *thr, J9Method *method, UDATA isCompiled, void* retur
 	J9UTF8* methodName = J9ROMMETHOD_NAME(J9_ROM_METHOD_FROM_RAM_METHOD(method));
 	J9UTF8* methodSignature = J9ROMMETHOD_SIGNATURE(J9_ROM_METHOD_FROM_RAM_METHOD(method));
 	UDATA modifiers = J9_ROM_METHOD_FROM_RAM_METHOD(method)->modifiers;
+
+	{
+		J9JavaVM *vm = thr->javaVM;
+		J9VMThread* currentThread = vm->internalVMFunctions->currentVMThread(vm);
+		Trc_MethodownedMoniorCount(thr, currentThread, thr->ownedMonitorCount, currentThread->ownedMonitorCount);
+	}
 
 	if (isCompiled) {
 		if (modifiers & J9AccStatic) {
@@ -253,6 +265,7 @@ traceMethodExit(J9VMThread *thr, J9Method *method, UDATA isCompiled, void* retur
 			}
 		}
 	}
+	thr->privateFlags2 &= ~J9_PRIVATE_FLAGS2_TRACE;
 
 	if( doParameters ) {
 		char buf[1024];
