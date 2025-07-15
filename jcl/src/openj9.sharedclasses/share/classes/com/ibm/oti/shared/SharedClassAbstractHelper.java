@@ -135,13 +135,20 @@ public abstract class SharedClassAbstractHelper extends SharedAbstractHelper imp
 	/*[ENDIF] JAVA_SPEC_VERSION >= 20 */
 	private static URL getURLToCheck(URL url) {
 		String pathString = url.toString();
-		int indexBang = pathString.indexOf("!/"); //$NON-NLS-1$
-
+		int indexBang = -1;
+		boolean nestJar = url.getProtocol().equals("nested"); //$NON-NLS-1$
+		if (nestJar) {
+			pathString = pathString.replaceFirst("nested", "file"); //$NON-NLS-1$ //$NON-NLS-2$
+			indexBang = pathString.indexOf("/!"); //$NON-NLS-1$
+		} else {
+			indexBang = pathString.indexOf("!/"); //$NON-NLS-1$
+		}
 		if (-1 != indexBang) {
 			/* For a nested jar (e.g. /path/A.jar!/lib/B.jar), validate the external jar file only (/path/A.jar),
 			 * so trim the entry within the jar after "!/"
 			 */
 			pathString = pathString.substring(0, indexBang);
+			
 			try {
 				return new URL(pathString);
 			} catch (MalformedURLException e) {
@@ -170,7 +177,7 @@ public abstract class SharedClassAbstractHelper extends SharedAbstractHelper imp
 			return true;
 		}
 		String protocol = url.getProtocol();
-		if (!(protocol.equals("file") || protocol.equals("jar"))) { //$NON-NLS-1$ //$NON-NLS-2$
+		if (!(protocol.equals("file") || protocol.equals("jar") || protocol.equals("nested"))) { //$NON-NLS-1$ //$NON-NLS-2$
 			/*[MSG "K0597", "URL {0} does not have required file or jar protocol."]*/
 			printVerboseInfo(Msg.getString("K0597", url.toString())); //$NON-NLS-1$
 			return false;

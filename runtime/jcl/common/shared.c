@@ -101,7 +101,18 @@ static void releaseStringChars(JNIEnv* env, jstring str, const char* chars);
 static void releaseStringPair(JNIEnv* env, jstring str1, const char* chars1, jstring str2, const char* chars2);
 static J9Pool* getTokenCache(JNIEnv* env);
 
-
+#if defined(WIN32)
+/* Do not replace / to \\ in "!/" or "/!" in nested jar. "!/" and "/!" are not path separators*/
+static BOOLEAN replaceSlash(char* path, UDATA index, UDATA len) {
+	BOOLEAN ret = TRUE;
+	if (index > 0 && path[index - 1] = "!" ) {
+		ret = FALSE;
+	} else if ((i + 1 < len) && path[index + 1] = "!") {
+		ret = FALSE;
+	}
+	return ret;
+}
+#endif /* defined(WIN32) */
 /* Pass a jclStringFarm if this string is to be copied and kept, otherwise pass a large enough char buffer in correctedPathPtr */
 /* THREADING: Must be protected by jclCacheMutex */
 static UDATA
@@ -149,7 +160,7 @@ correctURLPath(JNIEnv* env, const char* pathChars, jsize pathLen, char** correct
 				current = '\0';		/* remove trailing slash */
 			} 
 #if defined(WIN32)
-			else {
+			else if (replaceSlash(pathChars, i, (UDATA)pathLen)) {
 				current = '\\';		/* convert / to \\ */
 			}
 #endif /* defined(WIN32) */
@@ -578,7 +589,7 @@ getCpeTypeForProtocol(JNIEnv *env, const char *protocol, jsize protocolLen, cons
 		Trc_JCL_com_ibm_oti_shared_getCpeTypeForProtocol_ExitFail2();
 		return CPE_TYPE_UNKNOWN;
 	}
-	if (0 == strncmp(protocol, "jar", 4)) {
+	if (0 == strncmp(protocol, "jar", 4) || 0 == strncmp(protocol, "nested", 6)) {
 		Trc_JCL_com_ibm_oti_shared_getCpeTypeForProtocol_ExitJAR();
 		return CPE_TYPE_JAR;
 	}
