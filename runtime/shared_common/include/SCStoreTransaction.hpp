@@ -39,7 +39,7 @@ public:
 			sharedapi = (SCAbstractAPI *)(currentThread->javaVM->sharedClassConfig->sharedAPIObject);
 			memset ((void*)&pieces,0,sizeof(J9SharedRomClassPieces));
 			if (sharedapi != NULL) {
-				BOOLEAN useLoaderCpEntries = (NULL != classloader) && (classloader == currentThread->javaVM->systemClassLoader) && (!isIntermediateROMClass);
+				BOOLEAN useLoaderCpEntries = (NULL != classloader) && (classloader == currentThread->javaVM->systemClassLoader) && (!isIntermediateROMClass) && (!isModifiedClassfile);
 				sharedapi->classStoreTransaction_start((void *) &tobj, currentThread, classloader, NULL, 0, entryIndex, loadType, NULL, classnameLength, classnameData, ((isModifiedClassfile == true)?TRUE:FALSE), TRUE, useLoaderCpEntries);
 			}
 		} else {
