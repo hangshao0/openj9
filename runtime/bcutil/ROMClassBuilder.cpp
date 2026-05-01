@@ -1501,6 +1501,8 @@ ROMClassBuilder::compareROMClassForEquality(
 		ROMClassCreationContext *context)
 {
 	bool ret = false;
+	J9UTF8* name = J9ROMCLASS_CLASSNAME((J9ROMClass *)romClass);
+	Trc_BCU_compareROMClassForEquality_Entry(J9UTF8_LENGTH(name), J9UTF8_DATA(name));
 
 	if (romClassIsShared) {
 		extraModifiers |= J9AccClassIsShared;
@@ -1548,7 +1550,7 @@ ROMClassBuilder::compareROMClassForEquality(
 
 		ret = compareCursor.isEqual();
 	}
-	J9UTF8* name = J9ROMCLASS_CLASSNAME((J9ROMClass *)romClass);
+
 	Trc_BCU_compareROMClassForEquality_event(ret, J9UTF8_LENGTH(name), J9UTF8_DATA(name));
 	return ret;
 }
