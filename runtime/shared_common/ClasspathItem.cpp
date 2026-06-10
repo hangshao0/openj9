@@ -63,6 +63,9 @@ ClasspathEntryItem::initialize(const char* path_, U_16 pathLen_, UDATA protocol_
 			if (NULL == jarPath) {
 				jarPath = strstr(path,"!\\");
 			}
+			if (NULL == jarPath) {
+				jarPath = strstr(path,"/!");
+			}
 			if (NULL != jarPath) {
 				locationPathLen = jarPath - path;
 			}

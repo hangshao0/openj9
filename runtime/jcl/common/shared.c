@@ -578,7 +578,7 @@ getCpeTypeForProtocol(JNIEnv *env, const char *protocol, jsize protocolLen, cons
 		Trc_JCL_com_ibm_oti_shared_getCpeTypeForProtocol_ExitFail2();
 		return CPE_TYPE_UNKNOWN;
 	}
-	if (0 == strncmp(protocol, "jar", 4)) {
+	if (0 == strncmp(protocol, "jar", 4) || 0 == strncmp(protocol, "nested:", 7)) {
 		Trc_JCL_com_ibm_oti_shared_getCpeTypeForProtocol_ExitJAR();
 		return CPE_TYPE_JAR;
 	}
